@@ -1,3 +1,16 @@
+CUDA_VISIBLE_DEVICES=8 \
+python examples/domain_adaptation/image_classification/dan.py \
+test \
+-a SECA \
+--epochs 20 \
+-i 500 \
+--seed 0 \
+--interpolated \
+--trip_time 5 \
+--log logs/dan/test
+
+
+
 #!/usr/bin/env bash
 # ResNet50, Office31, Single Source
 CUDA_VISIBLE_DEVICES=0 python dan.py data/office31 -d Office31 -s D -t A -a resnet50 --epochs 20 --seed 0 --log logs/dan/Office31_D2A

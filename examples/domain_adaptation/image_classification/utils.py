@@ -6,6 +6,10 @@ import sys
 import os.path as osp
 import time
 from PIL import Image
+import numpy as np
+import pickle
+from torch.utils.data import TensorDataset, DataLoader
+
 
 import timm
 import torch
@@ -22,7 +26,6 @@ from tllib.utils.metric import accuracy, ConfusionMatrix
 from tllib.utils.meter import AverageMeter, ProgressMeter
 from tllib.vision.datasets.imagelist import MultipleDomainsDataset
 
-
 def get_model_names():
     return sorted(
         name for name in models.__dict__
@@ -31,19 +34,23 @@ def get_model_names():
     ) + timm.list_models()
 
 
+# def get_model(model_name, pretrain=True):
+#     if model_name in models.__dict__:
+#         # load models from tllib.vision.models
+#         backbone = models.__dict__[model_name](pretrained=pretrain)
+#     else:
+#         # load models from pytorch-image-models
+#         backbone = timm.create_model(model_name, pretrained=pretrain)
+#         try:
+#             backbone.out_features = backbone.get_classifier().in_features
+#             backbone.reset_classifier(0, '')
+#         except:
+#             backbone.out_features = backbone.head.in_features
+#             backbone.head = nn.Identity()
+#     return backbone
+
 def get_model(model_name, pretrain=True):
-    if model_name in models.__dict__:
-        # load models from tllib.vision.models
-        backbone = models.__dict__[model_name](pretrained=pretrain)
-    else:
-        # load models from pytorch-image-models
-        backbone = timm.create_model(model_name, pretrained=pretrain)
-        try:
-            backbone.out_features = backbone.get_classifier().in_features
-            backbone.reset_classifier(0, '')
-        except:
-            backbone.out_features = backbone.head.in_features
-            backbone.head = nn.Identity()
+    backbone = models.SECAEncoder()
     return backbone
 
 
@@ -53,6 +60,80 @@ def get_dataset_names():
         if not name.startswith("__") and callable(datasets.__dict__[name])
     ) + ['Digits']
 
+
+def load_data(args):
+    if args.interpolated:
+        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolated_trip%d.pickle'%args.trip_time
+    else:
+        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_trip%d.pickle'%args.trip_time
+
+    with open(filename, 'rb') as f:
+        kfold_dataset, X_unlabeled = pickle.load(f)
+    dataset = kfold_dataset
+        
+    Train_X = dataset[0].squeeze(1) # [141,248,4]
+    Train_Y_ori = dataset[1]
+    
+    class_dict={}
+    for y in Train_Y_ori:
+        if y not in class_dict:
+            class_dict[y]=1
+        else:
+            class_dict[y]+=1
+    print(class_dict)
+    
+    if args.interpolated:
+        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_interpolated_trip%d.pickle'%args.trip_time
+    else:
+        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_trip%d.pickle'%args.trip_time
+    with open(filename_mtl, 'rb') as f:
+        kfold_dataset_mtl, X_unlabeled_mtl = pickle.load(f)
+    dataset_mtl = kfold_dataset_mtl#[0]
+    train_X_mtl = dataset_mtl[0].squeeze(1) # (518, 1, 248, 4)
+    X_unlabeled_mtl = X_unlabeled_mtl.squeeze(1) # 366
+    
+    Test_X = dataset_mtl[2].squeeze(1)
+    Test_Y_ori = dataset_mtl[3]
+
+    if args.use_unlabel:
+        print('using unlabeled data')
+        train_data = np.concatenate([Train_X, X_unlabeled],axis=0)
+    else:
+        train_data = Train_X
+    train_data = np.concatenate([train_data, train_X_mtl], axis=0)
+        
+    # masked_train_X = mask_data(Train_X)
+    # masked_train_X_mtl = mask_data(train_X_mtl)
+
+    print('Reading Data: (train: geolife + MTL, test: MTL)')
+    print('Total shape: '+str(train_data.shape))
+    print('GeoLife shape: '+str(Train_X.shape))
+    print('MTL shape: '+str(train_X_mtl.shape))
+    
+    n_geolife=Train_X.shape[0]
+    n_mtl = train_X_mtl.shape[0]
+    train_dataset_geolife = TensorDataset(
+        torch.from_numpy(Train_X).to(torch.float),
+        #masked_train_X.to(torch.float),
+        torch.from_numpy(Train_Y_ori),
+        torch.from_numpy(np.array([0]*n_geolife))
+    )
+    train_dataset_mtl = TensorDataset(
+        torch.from_numpy(train_X_mtl).to(torch.float),
+        #masked_train_X_mtl.to(torch.float),
+        torch.from_numpy(np.array([1]*n_mtl))
+    )
+
+    test_dataset = TensorDataset(
+        torch.from_numpy(Test_X).to(torch.float),
+        torch.from_numpy(Test_Y_ori),
+    )
+    
+    # concat_dataset= ConcatDataset(train_dataset_geolife,train_dataset_mtl)
+    # train_loader = DataLoader(concat_dataset, batch_size=min(args.batch_size, len(concat_dataset)), shuffle=True, drop_last=True)
+    # test_loader = DataLoader(test_dataset, batch_size=min(args.batch_size, len(test_dataset)))
+    # return train_loader, Train_X, Train_Y_ori, test_loader, Test_X, Test_Y_ori
+    return train_dataset_geolife, train_dataset_mtl, test_dataset
 
 def get_dataset(dataset_name, root, source, target, train_source_transform, val_transform, train_target_transform=None):
     if train_target_transform is None:

@@ -46,23 +46,26 @@ def main(args: argparse.Namespace):
     cudnn.benchmark = True
 
     # Data loading code
-    train_transform = utils.get_train_transform(args.train_resizing, scale=args.scale, ratio=args.ratio,
-                                                random_horizontal_flip=not args.no_hflip,
-                                                random_color_jitter=False, resize_size=args.resize_size,
-                                                norm_mean=args.norm_mean, norm_std=args.norm_std)
-    val_transform = utils.get_val_transform(args.val_resizing, resize_size=args.resize_size,
-                                            norm_mean=args.norm_mean, norm_std=args.norm_std)
-    print("train_transform: ", train_transform)
-    print("val_transform: ", val_transform)
+    # train_transform = utils.get_train_transform(args.train_resizing, scale=args.scale, ratio=args.ratio,
+    #                                             random_horizontal_flip=not args.no_hflip,
+    #                                             random_color_jitter=False, resize_size=args.resize_size,
+    #                                             norm_mean=args.norm_mean, norm_std=args.norm_std)
+    # val_transform = utils.get_val_transform(args.val_resizing, resize_size=args.resize_size,
+    #                                         norm_mean=args.norm_mean, norm_std=args.norm_std)
+    # print("train_transform: ", train_transform)
+    # print("val_transform: ", val_transform)
 
-    train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, args.class_names = \
-        utils.get_dataset(args.data, args.root, args.source, args.target, train_transform, val_transform)
+    # train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, args.class_names = \
+    #     utils.get_dataset(args.data, args.root, args.source, args.target, train_transform, val_transform)
+    num_classes = 4
+    train_source_dataset, train_target_dataset, val_dataset = utils.load_data(args)
     train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
                                      shuffle=True, num_workers=args.workers, drop_last=True)
     train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
                                      shuffle=True, num_workers=args.workers, drop_last=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+    #test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+    
 
     train_source_iter = ForeverDataIterator(train_source_loader)
     train_target_iter = ForeverDataIterator(train_target_loader)
@@ -128,9 +131,9 @@ def main(args: argparse.Namespace):
     print("best_acc1 = {:3.1f}".format(best_acc1))
 
     # evaluate on test set
-    classifier.load_state_dict(torch.load(logger.get_checkpoint_path('best')))
-    acc1 = utils.validate(test_loader, classifier, args, device)
-    print("test_acc1 = {:3.1f}".format(acc1))
+    # classifier.load_state_dict(torch.load(logger.get_checkpoint_path('best')))
+    # acc1 = utils.validate(test_loader, classifier, args, device)
+    # print("test_acc1 = {:3.1f}".format(acc1))
 
     logger.close()
 
@@ -195,7 +198,7 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='DAN for Unsupervised Domain Adaptation')
     # dataset parameters
-    parser.add_argument('root', metavar='DIR',
+    parser.add_argument('root', metavar='DIR',default='',
                         help='root path of dataset')
     parser.add_argument('-d', '--data', metavar='DATA', default='Office31', choices=utils.get_dataset_names(),
                         help='dataset: ' + ' | '.join(utils.get_dataset_names()) +
@@ -218,7 +221,7 @@ if __name__ == '__main__':
                         default=(0.229, 0.224, 0.225), help='normalization std')
     # model parameters
     parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                        choices=utils.get_model_names(),
+                        #choices=utils.get_model_names(),
                         help='backbone architecture: ' +
                              ' | '.join(utils.get_model_names()) +
                              ' (default: resnet18)')
@@ -260,5 +263,10 @@ if __name__ == '__main__':
     parser.add_argument("--phase", type=str, default='train', choices=['train', 'test', 'analysis'],
                         help="When phase is 'test', only test the model."
                              "When phase is 'analysis', only analysis the model.")
+    
+    parser.add_argument('--use_unlabel', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument('--interpolated', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument('--trip_time', type=int, default=20, help='')
+    
     args = parser.parse_args()
     main(args)
