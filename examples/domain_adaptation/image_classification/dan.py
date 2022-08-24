@@ -114,6 +114,7 @@ def main(args: argparse.Namespace):
 
     # start training
     best_acc1 = 0.
+    best_epoch=0
     for epoch in range(args.epochs):
         # train for one epoch
         train(train_source_iter, train_target_iter, classifier, mkmmd_loss, optimizer,
@@ -126,9 +127,10 @@ def main(args: argparse.Namespace):
         torch.save(classifier.state_dict(), logger.get_checkpoint_path('latest'))
         if acc1 > best_acc1:
             shutil.copy(logger.get_checkpoint_path('latest'), logger.get_checkpoint_path('best'))
+            best_epoch=epoch
         best_acc1 = max(acc1, best_acc1)
 
-    print("best_acc1 = {:3.1f}".format(best_acc1))
+    print("best_acc1 = {:3.1f}({:d})".format(best_acc1, best_epoch))
 
     # evaluate on test set
     # classifier.load_state_dict(torch.load(logger.get_checkpoint_path('best')))
