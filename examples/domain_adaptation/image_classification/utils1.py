@@ -63,26 +63,26 @@ def get_dataset_names():
 
 def load_data(args):
     if args.interpolated:
-        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolated_trip%d_new_meters.pickle'%args.trip_time
+        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedNAN_trip%d_new_001meters.pickle'%args.trip_time
         # filename = '/home/yichen/ts2vec/datafiles/generated_features/Geolife%d_interpolated.npy'%args.trip_time
     else:
-        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_trip%d_new_meters.pickle'%args.trip_time
+        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_trip%d_new_001meters.pickle'%args.trip_time
         # filename = '/home/yichen/ts2vec/datafiles/generated_features/Geolife%d.npy'%args.trip_time
 
-
-
-    with open(filename, 'rb') as f:
-        kfold_dataset, X_unlabeled = pickle.load(f)
-    dataset = kfold_dataset
+    # with open(filename, 'rb') as f:
+    #     kfold_dataset, X_unlabeled = pickle.load(f)
+    # dataset = kfold_dataset
     
-    # print('dataset:', dataset)
+    # # print('dataset:', dataset)
         
-    train_x_geolife = dataset[0].squeeze(1) # [141,248,4]
-    train_y_geolife = dataset[1]
-    x_unlabeled_geilife = X_unlabeled.squeeze(1) # 366
+    # Train_X = dataset[0].squeeze(1) # [141,248,4]
+    # Train_Y_ori = dataset[1]
 
-    # Test_X = dataset[2].squeeze(1)
-    # Test_Y_ori = dataset[3]
+    train_dataset, _ = np.load(filename, allow_pickle=True)
+    train_x_geolife = train_dataset[0]
+    train_y_geolife = train_dataset[1]
+    # test_x = test_dataset[0] 
+    # test_y = test_dataset[1]
 
 
     class_dict={}
@@ -94,33 +94,33 @@ def load_data(args):
     print(class_dict)
     
     if args.interpolated:
-        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_interpolated_trip%d_new_meters.pickle'%args.trip_time
+        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedNAN_trip%d_new_001meters.pickle'%args.trip_time
         # filename_mtl = '/home/yichen/ts2vec/datafiles/generated_features/MTL%d_interpolated.npy'%args.trip_time
     else:
-        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_trip%d_new_meters.pickle'%args.trip_time
+        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_trip%d_new_001meters.pickle'%args.trip_time
         # filename_mtl = '/home/yichen/ts2vec/datafiles/generated_features/MTL%d.npy'%args.trip_time
     
     
-    with open(filename_mtl, 'rb') as f:
-        kfold_dataset_mtl, X_unlabeled_mtl = pickle.load(f)
-    dataset_mtl = kfold_dataset_mtl#[0]
-    train_X_mtl = dataset_mtl[0].squeeze(1) # (518, 1, 248, 4)
-    X_unlabeled_mtl = X_unlabeled_mtl.squeeze(1) # 366
+    # with open(filename_mtl, 'rb') as f:
+    #     kfold_dataset_mtl, X_unlabeled_mtl = pickle.load(f)
+    # dataset_mtl = kfold_dataset_mtl#[0]
+    # train_X_mtl = dataset_mtl[0].squeeze(1) # (518, 1, 248, 4)
+    # X_unlabeled_mtl = X_unlabeled_mtl.squeeze(1) # 366
     
-    test_X_mtl = dataset_mtl[2].squeeze(1)
-    test_Y_mtl = dataset_mtl[3]
+    # Test_X = dataset_mtl[2].squeeze(1)
+    # Test_Y_ori = dataset_mtl[3]
 
-    # train_dataset, test_dataset = np.load(filename_mtl, allow_pickle=True)
-    # train_X_mtl = train_dataset[0] 
-    # train_y_mtl = train_dataset[1]
-    # test_X = test_dataset[0] 
-    # test_y = test_dataset[1]
+    train_dataset, test_dataset = np.load(filename_mtl, allow_pickle=True)
+    train_X_mtl = train_dataset[0] 
+    train_y_mtl = train_dataset[1]
+    test_x_mtl = test_dataset[0] 
+    test_y_mtl = test_dataset[1]
 
     if args.use_unlabel:
         print('using unlabeled data')
-        train_data = np.concatenate([train_X_mtl],axis=0)
+        train_data = np.concatenate([train_x_geolife],axis=0)
     else:
-        train_data = train_X_mtl
+        train_data = train_x_geolife
     train_data = np.concatenate([train_data, train_X_mtl], axis=0)
         
     # masked_train_X = mask_data(Train_X)
@@ -131,9 +131,8 @@ def load_data(args):
     print('GeoLife shape: '+str(train_x_geolife.shape))
     print('MTL shape: '+str(train_X_mtl.shape))
     
-    n_geolife = train_x_geolife.shape[0]
+    n_geolife=train_x_geolife.shape[0]
     n_mtl = train_X_mtl.shape[0]
-
     train_dataset_geolife = TensorDataset(
         torch.from_numpy(train_x_geolife).to(torch.float),
         #masked_train_X.to(torch.float),
@@ -147,8 +146,8 @@ def load_data(args):
     )
 
     test_dataset = TensorDataset(
-        torch.from_numpy(test_X_mtl).to(torch.float),
-        torch.from_numpy(test_Y_mtl),
+        torch.from_numpy(test_x_mtl).to(torch.float),
+        torch.from_numpy(test_y_mtl),
     )
     
     # concat_dataset= ConcatDataset(train_dataset_geolife,train_dataset_mtl)
@@ -200,15 +199,6 @@ def validate(val_loader, model, args, device) -> float:
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
-    
-    # per class acc
-    label_dict = {"walk": 0, "bike": 1, "car": 2, "train": 3}
-    idx_dict={}
-    for k,v in label_dict.items():
-        idx_dict[v]=k
-    nb_classes = 4
-    confusion_matrix = torch.zeros(nb_classes, nb_classes)  
-
     progress = ProgressMeter(
         len(val_loader),
         [batch_time, losses, top1],
@@ -239,23 +229,12 @@ def validate(val_loader, model, args, device) -> float:
             losses.update(loss.item(), images.size(0))
             top1.update(acc1.item(), images.size(0))
 
-            # per calss acc
-            _, preds = torch.max(output, 1)
-            for t, p in zip(target.view(-1), preds.view(-1)):
-                confusion_matrix[t.long(), p.long()] += 1
-
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
 
             if i % args.print_freq == 0:
                 progress.display(i)
-        
-        # per class acc
-        per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
-        print('per class accuracy:')
-        for idx,acc in enumerate(per_class_acc):
-            print('\t '+str(idx_dict[idx])+': '+str(acc))
 
         print(' * Acc@1 {top1.avg:.3f}'.format(top1=top1))
         if confmat:

@@ -46,23 +46,31 @@ def main(args: argparse.Namespace):
     cudnn.benchmark = True
 
     # Data loading code
-    train_transform = utils.get_train_transform(args.train_resizing, scale=args.scale, ratio=args.ratio,
-                                                random_horizontal_flip=not args.no_hflip,
-                                                random_color_jitter=False, resize_size=args.resize_size,
-                                                norm_mean=args.norm_mean, norm_std=args.norm_std)
-    val_transform = utils.get_val_transform(args.val_resizing, resize_size=args.resize_size,
-                                            norm_mean=args.norm_mean, norm_std=args.norm_std)
-    print("train_transform: ", train_transform)
-    print("val_transform: ", val_transform)
+    # train_transform = utils.get_train_transform(args.train_resizing, scale=args.scale, ratio=args.ratio,
+    #                                             random_horizontal_flip=not args.no_hflip,
+    #                                             random_color_jitter=False, resize_size=args.resize_size,
+    #                                             norm_mean=args.norm_mean, norm_std=args.norm_std)
+    # val_transform = utils.get_val_transform(args.val_resizing, resize_size=args.resize_size,
+    #                                         norm_mean=args.norm_mean, norm_std=args.norm_std)
+    # print("train_transform: ", train_transform)
+    # print("val_transform: ", val_transform)
 
-    train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, args.class_names = \
-        utils.get_dataset(args.data, args.root, args.source, args.target, train_transform, val_transform)
+    # train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, args.class_names = \
+    #     utils.get_dataset(args.data, args.root, args.source, args.target, train_transform, val_transform)
+    # train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
+    #                                  shuffle=True, num_workers=args.workers, drop_last=True)
+    # train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
+    #                                  shuffle=True, num_workers=args.workers, drop_last=True)
+    # val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+    # test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+
+    num_classes = 4
+    train_source_dataset, train_target_dataset, val_dataset = utils.load_data(args)
     train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
                                      shuffle=True, num_workers=args.workers, drop_last=True)
     train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
                                      shuffle=True, num_workers=args.workers, drop_last=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
 
     train_source_iter = ForeverDataIterator(train_source_loader)
     train_target_iter = ForeverDataIterator(train_target_loader)
@@ -113,6 +121,7 @@ def main(args: argparse.Namespace):
     # start training
     best_acc1 = 0.
     best_results = None
+    best_epoch = 0
     for epoch in range(args.epochs):
         # train for one epoch
         train(train_source_iter, train_target_iter, G, F1, F2, optimizer_g, optimizer_f, epoch, args)
@@ -130,6 +139,7 @@ def main(args: argparse.Namespace):
             shutil.copy(logger.get_checkpoint_path('latest'), logger.get_checkpoint_path('best'))
             best_acc1 = max(results)
             best_results = results
+            best_epoch = epoch
 
     print("best_acc1 = {:3.1f}, results = {}".format(best_acc1, best_results))
 
@@ -138,8 +148,8 @@ def main(args: argparse.Namespace):
     G.load_state_dict(checkpoint['G'])
     F1.load_state_dict(checkpoint['F1'])
     F2.load_state_dict(checkpoint['F2'])
-    results = validate(test_loader, G, F1, F2, args)
-    print("test_acc1 = {:3.1f}".format(max(results)))
+    # results = validate(test_loader, G, F1, F2, args)
+    # print("test_acc1 = {:3.1f}".format(max(results)))
 
     logger.close()
 
@@ -317,7 +327,7 @@ if __name__ == '__main__':
                         default=(0.229, 0.224, 0.225), help='normalization std')
     # model parameters
     parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                        choices=utils.get_model_names(),
+                        # choices=utils.get_model_names(),
                         help='backbone architecture: ' +
                              ' | '.join(utils.get_model_names()) +
                              ' (default: resnet18)')
@@ -354,5 +364,10 @@ if __name__ == '__main__':
     parser.add_argument("--phase", type=str, default='train', choices=['train', 'test', 'analysis'],
                         help="When phase is 'test', only test the model."
                              "When phase is 'analysis', only analysis the model.")
+    
+    parser.add_argument('--use_unlabel', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument('--interpolated', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument('--trip_time', type=int, default=20, help='')
+
     args = parser.parse_args()
     main(args)

@@ -18,7 +18,7 @@ test \
 
 
 CUDA_VISIBLE_DEVICES=8 \
-python examples/domain_adaptation/image_classification/dann.py \
+python dann.py \
 test \
 -a SECA \
 --epochs 20 \
@@ -27,6 +27,5 @@ test \
 --lr 1e-3 \
 --batch-size 4 \
 --bottleneck-dim 64 \
---interpolated \
 --trip_time 5 \
 --log logs/dann/test
