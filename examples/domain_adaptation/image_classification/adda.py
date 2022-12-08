@@ -15,7 +15,7 @@ import os.path as osp
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
-from torch.optim import SGD
+from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 
@@ -77,6 +77,7 @@ def main(args: argparse.Namespace):
 
     num_classes = 4
     train_source_dataset, train_target_dataset, val_dataset = utils.load_data(args)
+    
     train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
                                      shuffle=True, num_workers=args.workers, drop_last=True)
     train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
@@ -99,7 +100,7 @@ def main(args: argparse.Namespace):
         args.pretrain = logger.get_checkpoint_path('pretrain')
         pretrain_model = ImageClassifier(backbone, num_classes, bottleneck_dim=args.bottleneck_dim,
                                          pool_layer=pool_layer, finetune=not args.scratch).to(device)
-        pretrain_optimizer = SGD(pretrain_model.get_parameters(), args.pretrain_lr, momentum=args.momentum,
+        pretrain_optimizer = Adam(pretrain_model.get_parameters(), args.pretrain_lr, momentum=args.momentum,
                                  weight_decay=args.weight_decay, nesterov=True)
         pretrain_lr_scheduler = LambdaLR(pretrain_optimizer,
                                          lambda x: args.pretrain_lr * (1. + args.lr_gamma * float(x)) ** (

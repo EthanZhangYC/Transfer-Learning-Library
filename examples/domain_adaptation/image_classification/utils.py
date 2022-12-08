@@ -5,7 +5,7 @@
 import sys
 import os.path as osp
 import time
-from PIL import Image
+# from PIL import Image
 import numpy as np
 import pickle
 from torch.utils.data import TensorDataset, DataLoader
@@ -19,7 +19,7 @@ import torchvision.transforms as T
 from timm.data.auto_augment import auto_augment_transform, rand_augment_transform
 
 sys.path.append('../../..')
-import tllib.vision.datasets as datasets
+# import tllib.vision.datasets as datasets
 import tllib.vision.models as models
 from tllib.vision.transforms import ResizeImage
 from tllib.utils.metric import accuracy, ConfusionMatrix
@@ -63,10 +63,10 @@ def get_dataset_names():
 
 def load_data(args):
     if args.interpolated:
-        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolated_trip%d_new_meters.pickle'%args.trip_time
+        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
         # filename = '/home/yichen/ts2vec/datafiles/generated_features/Geolife%d_interpolated.npy'%args.trip_time
     else:
-        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_trip%d_new_meters.pickle'%args.trip_time
+        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_trip%d_new_001meters.pickle'%args.trip_time
         # filename = '/home/yichen/ts2vec/datafiles/generated_features/Geolife%d.npy'%args.trip_time
 
 
@@ -74,41 +74,63 @@ def load_data(args):
     with open(filename, 'rb') as f:
         kfold_dataset, X_unlabeled = pickle.load(f)
     dataset = kfold_dataset
+
     
     # print('dataset:', dataset)
         
-    train_x_geolife = dataset[0].squeeze(1) # [141,248,4]
-    train_y_geolife = dataset[1]
-    x_unlabeled_geilife = X_unlabeled.squeeze(1) # 366
+    train_x_geolife = dataset[0].squeeze(1)[:,:,:-1] # [141,248,4]
+    train_y_geolife = dataset[2]
+    print('geo shape:', train_x_geolife.shape, train_y_geolife.shape)
+    # x_unlabeled_geilife = X_unlabeled.squeeze(1)[:,:,:-1] # 366
 
     # Test_X = dataset[2].squeeze(1)
     # Test_Y_ori = dataset[3]
 
 
-    class_dict={}
-    for y in train_y_geolife:
-        if y not in class_dict:
-            class_dict[y]=1
-        else:
-            class_dict[y]+=1
-    print(class_dict)
+    # class_dict={}
+    # for y in train_y_geolife:
+    #     if y not in class_dict:
+    #         class_dict[y]=1
+    #     else:
+    #         class_dict[y]+=1
+    # print('All geolife class:', class_dict)
     
     if args.interpolated:
-        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_interpolated_trip%d_new_meters.pickle'%args.trip_time
+        # filename_mtl = '/home/xieyuan/Transportation-mode/TS2Vec/datafiles/Huawei/traindata_4class_xy_traintest_interpolatedLinear_trip%d_new_001meters.pickle'%args.trip_time
+        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
         # filename_mtl = '/home/yichen/ts2vec/datafiles/generated_features/MTL%d_interpolated.npy'%args.trip_time
     else:
-        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_trip%d_new_meters.pickle'%args.trip_time
+        # filename_mtl = '/home/xieyuan/Transportation-mode/TS2Vec/datafiles/Huawei/traindata_4class_xy_traintest_trip%d_new_001meters.pickle'%args.trip_time
+        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_trip%d_new_001meters.pickle'%args.trip_time
         # filename_mtl = '/home/yichen/ts2vec/datafiles/generated_features/MTL%d.npy'%args.trip_time
     
     
     with open(filename_mtl, 'rb') as f:
         kfold_dataset_mtl, X_unlabeled_mtl = pickle.load(f)
-    dataset_mtl = kfold_dataset_mtl#[0]
-    train_X_mtl = dataset_mtl[0].squeeze(1) # (518, 1, 248, 4)
-    X_unlabeled_mtl = X_unlabeled_mtl.squeeze(1) # 366
     
-    test_X_mtl = dataset_mtl[2].squeeze(1)
-    test_Y_mtl = dataset_mtl[3]
+    dataset_mtl = kfold_dataset_mtl#[0]
+    train_X_mtl = dataset_mtl[0].squeeze(1)[:,:,:-1] # (518, 1, 248, 4)
+    train_y_mtl = dataset_mtl[2]
+
+    # train_X_mtl = np.concatenate([train_X_mtl[:,:,0:2],train_X_mtl[:,:,4:]], axis=-1)    
+     
+
+    # X_unlabeled_mtl = X_unlabeled_mtl.squeeze(1)[:,:,:-1] # 366
+    
+    test_X_mtl = dataset_mtl[3].squeeze(1)[:,:,:-1] 
+    # test_X_mtl = np.concatenate([test_X_mtl[:,:,0:2],test_X_mtl[:,:,4:]], axis=-1)
+
+    test_Y_mtl = dataset_mtl[5]
+    print('shape:', test_Y_mtl.shape)
+
+    # class_dict={}
+    # for y in train_y_mtl:
+    #     if y not in class_dict:
+    #         class_dict[y]=1
+    #     else:
+    #         class_dict[y]+=1
+    # print('Train Huawei class:', class_dict)
+    # print('Train MTL class:', class_dict)
 
     # train_dataset, test_dataset = np.load(filename_mtl, allow_pickle=True)
     # train_X_mtl = train_dataset[0] 
@@ -126,13 +148,16 @@ def load_data(args):
     # masked_train_X = mask_data(Train_X)
     # masked_train_X_mtl = mask_data(train_X_mtl)
 
-    print('Reading Data: (train: geolife + MTL, test: MTL)')
+    print('Reading Data: (train: geolife + Huawei, test: Huawei)')
     print('Total shape: '+str(train_data.shape))
     print('GeoLife shape: '+str(train_x_geolife.shape))
-    print('MTL shape: '+str(train_X_mtl.shape))
+    print('MTL shape: '+str(train_X_mtl.shape)+str(test_X_mtl.shape))
+    # print('Huawei shape: '+str(train_X_mtl.shape) + str(test_X_mtl.shape))
     
     n_geolife = train_x_geolife.shape[0]
     n_mtl = train_X_mtl.shape[0]
+
+    print('geolife:', n_geolife)
 
     train_dataset_geolife = TensorDataset(
         torch.from_numpy(train_x_geolife).to(torch.float),
@@ -150,7 +175,6 @@ def load_data(args):
         torch.from_numpy(test_X_mtl).to(torch.float),
         torch.from_numpy(test_Y_mtl),
     )
-    
     # concat_dataset= ConcatDataset(train_dataset_geolife,train_dataset_mtl)
     # train_loader = DataLoader(concat_dataset, batch_size=min(args.batch_size, len(concat_dataset)), shuffle=True, drop_last=True)
     # test_loader = DataLoader(test_dataset, batch_size=min(args.batch_size, len(test_dataset)))

@@ -12,7 +12,7 @@ import os.path as osp
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
-from torch.optim import SGD
+from torch.optim import SGD, Adam
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
@@ -85,7 +85,7 @@ def main(args: argparse.Namespace):
 
     # define optimizer
     # the learning rate is fixed according to origin paper
-    optimizer = SGD(classifier.get_parameters(), args.lr, weight_decay=args.weight_decay)
+    optimizer = Adam(classifier.get_parameters(), args.lr, weight_decay=args.weight_decay)
 
     # resume from the best checkpoint
     if args.phase != 'train':
@@ -213,9 +213,9 @@ if __name__ == '__main__':
     # dataset parameters
     parser.add_argument('root', metavar='DIR',
                         help='root path of dataset')
-    parser.add_argument('-d', '--data', metavar='DATA', default='Office31', choices=utils.get_dataset_names(),
-                        help='dataset: ' + ' | '.join(utils.get_dataset_names()) +
-                             ' (default: Office31)')
+    # parser.add_argument('-d', '--data', metavar='DATA', default='Office31', choices=utils.get_dataset_names(),
+    #                     help='dataset: ' + ' | '.join(utils.get_dataset_names()) +
+    #                          ' (default: Office31)')
     parser.add_argument('-s', '--source', help='source domain(s)', nargs='+')
     parser.add_argument('-t', '--target', help='target domain(s)', nargs='+')
     parser.add_argument('--train-resizing', type=str, default='ran.crop')

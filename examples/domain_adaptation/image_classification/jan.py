@@ -12,7 +12,7 @@ import os.path as osp
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
-from torch.optim import SGD
+from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
@@ -100,8 +100,9 @@ def main(args: argparse.Namespace):
         parameters += [{"params": theta.parameters(), 'lr': 0.1} for theta in thetas]
 
     # define optimizer
-    optimizer = SGD(parameters, args.lr, momentum=args.momentum, weight_decay=args.wd, nesterov=True)
-    lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
+    optimizer = torch.optim.Adam(classifier.get_parameters(), lr=args.lr, weight_decay=args.wd)
+    # optimizer = Adam(parameters, args.lr, momentum=args.momentum, weight_decay=args.wd, nesterov=True)
+    # lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
 
     # resume from the best checkpoint
     if args.phase != 'train':
@@ -134,7 +135,7 @@ def main(args: argparse.Namespace):
     for epoch in range(args.epochs):
         # train for one epoch
         train(train_source_iter, train_target_iter, classifier, jmmd_loss, optimizer,
-              lr_scheduler, epoch, args)
+              epoch, args)
 
         # evaluate on validation set
         acc1 = utils.validate(val_loader, classifier, args, device)
@@ -158,8 +159,8 @@ def main(args: argparse.Namespace):
 
 
 def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator, model: ImageClassifier,
-          jmmd_loss: JointMultipleKernelMaximumMeanDiscrepancy, optimizer: SGD,
-          lr_scheduler: LambdaLR, epoch: int, args: argparse.Namespace):
+          jmmd_loss: JointMultipleKernelMaximumMeanDiscrepancy, optimizer: Adam,
+          epoch: int, args: argparse.Namespace):
     batch_time = AverageMeter('Time', ':4.2f')
     data_time = AverageMeter('Data', ':3.1f')
     losses = AverageMeter('Loss', ':3.2f')
@@ -210,7 +211,7 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        lr_scheduler.step()
+        # lr_scheduler.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)

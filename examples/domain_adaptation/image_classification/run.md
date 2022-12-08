@@ -1,18 +1,18 @@
 ############################ DAN ###################################
 
 CUDA_VISIBLE_DEVICES=8 \
-python examples/domain_adaptation/image_classification/dan.py \
+python cdan.py \
 test \
 -a SECA \
 --epochs 20 \
 -i 500 \
 --seed 0 \
 --lr 1e-3 \
---batch-size 4 \
+--batch-size 64 \
 --bottleneck-dim 64 \
 --interpolated \
---trip_time 5 \
---log logs/dan/test
+--trip_time 20 \
+--log logs/cdan/test
 
 
 
@@ -25,7 +25,7 @@ test \
 -i 500 \
 --seed 0 \
 --lr 1e-3 \
---batch-size 4 \
+--batch-size 64 \
 --bottleneck-dim 64 \
 --trip_time 5 \
 --log logs/dann/test

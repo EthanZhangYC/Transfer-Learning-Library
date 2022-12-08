@@ -12,7 +12,7 @@ import os.path as osp
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
-from torch.optim import SGD
+from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
@@ -82,9 +82,11 @@ def main(args: argparse.Namespace):
                                  pool_layer=pool_layer, finetune=not args.scratch).to(device)
 
     # define optimizer and lr scheduler
-    optimizer = SGD(classifier.get_parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay,
-                    nesterov=True)
-    lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
+    # optimizer = Adam(classifier.get_parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay,
+                    # nesterov=True)
+    # lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
+
+    optimizer = torch.optim.Adam(classifier.get_parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     # define loss function
     mcc_loss = MinimumClassConfusionLoss(temperature=args.temperature)
@@ -118,10 +120,10 @@ def main(args: argparse.Namespace):
     best_acc1 = 0.
     best_epoch = 0
     for epoch in range(args.epochs):
-        print("lr:", lr_scheduler.get_last_lr()[0])
+        # print("lr:", lr_scheduler.get_last_lr()[0])
         # train for one epoch
         train(train_source_iter, train_target_iter, classifier, mcc_loss, optimizer,
-              lr_scheduler, epoch, args)
+              epoch, args)
 
         # evaluate on validation set
         acc1 = utils.validate(val_loader, classifier, args, device)
@@ -145,8 +147,8 @@ def main(args: argparse.Namespace):
 
 
 def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator,
-          model: ImageClassifier, mcc: MinimumClassConfusionLoss, optimizer: SGD,
-          lr_scheduler: LambdaLR, epoch: int, args: argparse.Namespace):
+          model: ImageClassifier, mcc: MinimumClassConfusionLoss, optimizer: Adam,
+          epoch: int, args: argparse.Namespace):
     batch_time = AverageMeter('Time', ':3.1f')
     data_time = AverageMeter('Data', ':3.1f')
     losses = AverageMeter('Loss', ':3.2f')
@@ -192,7 +194,7 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        lr_scheduler.step()
+        # lr_scheduler.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)

@@ -12,7 +12,7 @@ import os.path as osp
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
-from torch.optim import SGD
+from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
@@ -85,7 +85,7 @@ def main(args: argparse.Namespace):
     domain_discri = DomainDiscriminator(in_feature=classifier.features_dim, hidden_size=1024).to(device)
 
     # define optimizer and lr scheduler
-    optimizer = SGD(classifier.get_parameters() + domain_discri.get_parameters(),
+    optimizer = Adam(classifier.get_parameters() + domain_discri.get_parameters(),
                     args.lr, momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
     lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
 

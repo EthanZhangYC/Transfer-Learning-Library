@@ -12,7 +12,7 @@ import os.path as osp
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
-from torch.optim import SGD
+from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
@@ -60,6 +60,7 @@ def main(args: argparse.Namespace):
 
     num_classes = 4
     train_source_dataset, train_target_dataset, val_dataset = utils.load_data(args)
+
     train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
                                      shuffle=True, num_workers=args.workers, drop_last=True)
     train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
@@ -70,6 +71,8 @@ def main(args: argparse.Namespace):
     train_source_iter = ForeverDataIterator(train_source_loader)
     train_target_iter = ForeverDataIterator(train_target_loader)
 
+    
+
     # create model
     print("=> using model '{}'".format(args.arch))
     backbone = utils.get_model(args.arch, pretrain=not args.scratch)
@@ -79,9 +82,10 @@ def main(args: argparse.Namespace):
     domain_discri = DomainDiscriminator(in_feature=classifier.features_dim, hidden_size=1024).to(device)
 
     # define optimizer and lr scheduler
-    optimizer = SGD(classifier.get_parameters() + domain_discri.get_parameters(),
-                    args.lr, momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
-    lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
+    # optimizer = Adam(classifier.get_parameters() + domain_discri.get_parameters(),
+    #                 args.lr, momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
+    optimizer = torch.optim.Adam(classifier.get_parameters() + domain_discri.get_parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    # lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
 
     # define loss function
     domain_adv = DomainAdversarialLoss(domain_discri).to(device)
@@ -115,11 +119,13 @@ def main(args: argparse.Namespace):
     best_acc1 = 0.
     best_epoch=0
     for epoch in range(args.epochs):
-        print("lr:", lr_scheduler.get_last_lr()[0])
+        # print("lr:", lr_scheduler.get_last_lr()[0])
         # train for one epoch
+        # train(train_source_iter, train_target_iter, classifier, domain_adv, optimizer,
+        #       lr_scheduler, epoch, args)
         train(train_source_iter, train_target_iter, classifier, domain_adv, optimizer,
-              lr_scheduler, epoch, args)
-
+              epoch, args)
+              
         # evaluate on validation set
         acc1 = utils.validate(val_loader, classifier, args, device)
 
@@ -141,8 +147,8 @@ def main(args: argparse.Namespace):
 
 
 def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator,
-          model: ImageClassifier, domain_adv: DomainAdversarialLoss, optimizer: SGD,
-          lr_scheduler: LambdaLR, epoch: int, args: argparse.Namespace):
+          model: ImageClassifier, domain_adv: DomainAdversarialLoss, optimizer: Adam,
+          epoch: int, args: argparse.Namespace):
     batch_time = AverageMeter('Time', ':5.2f')
     data_time = AverageMeter('Data', ':5.2f')
     losses = AverageMeter('Loss', ':6.2f')
@@ -190,7 +196,7 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        lr_scheduler.step()
+        # lr_scheduler.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -205,9 +211,9 @@ if __name__ == '__main__':
     # dataset parameters
     parser.add_argument('root', metavar='DIR',
                         help='root path of dataset')
-    parser.add_argument('-d', '--data', metavar='DATA', default='Office31', choices=utils.get_dataset_names(),
-                        help='dataset: ' + ' | '.join(utils.get_dataset_names()) +
-                             ' (default: Office31)')
+    # parser.add_argument('-d', '--data', metavar='DATA', default='Office31', choices=utils.get_dataset_names(),
+    #                     help='dataset: ' + ' | '.join(utils.get_dataset_names()) +
+    #                          ' (default: Office31)')
     parser.add_argument('-s', '--source', help='source domain(s)', nargs='+')
     parser.add_argument('-t', '--target', help='target domain(s)', nargs='+')
     parser.add_argument('--train-resizing', type=str, default='default')
