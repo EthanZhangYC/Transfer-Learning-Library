@@ -50,7 +50,8 @@ def get_model_names():
 #     return backbone
 
 def get_model(model_name, pretrain=True):
-    backbone = models.SECAEncoder()
+    # backbone = models.SECAEncoder()
+    backbone = models.TSEncoder()
     return backbone
 
 

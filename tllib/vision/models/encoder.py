@@ -4,7 +4,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import numpy as np
-#from .dilated_conv import DilatedConvEncoder
+from .dilated_conv import DilatedConvEncoder
 
 
 __all__ = ['SECAEncoder']
@@ -104,7 +104,7 @@ def generate_binomial_mask(B, T, p=0.5):
     return torch.from_numpy(np.random.binomial(1, p, size=(B, T))).to(torch.bool)
 
 class TSEncoder(nn.Module):
-    def __init__(self, input_dims, output_dims, hidden_dims=64, depth=10, mask_mode='binomial', n_class=4):
+    def __init__(self, input_dims, output_dims, hidden_dims=64, depth=10, mask_mode='binomial', n_class=4, reconstruct_dim=2):
         super().__init__()
         self.input_dims = input_dims
         self.output_dims = output_dims
@@ -117,26 +117,40 @@ class TSEncoder(nn.Module):
             kernel_size=3
         )
         self.repr_dropout = nn.Dropout(p=0.1)
+        # self.fc = nn.Sequential(
+        #     nn.Dropout(p=0.5),
+        #     nn.Linear(output_dims, n_class)
+        # )
         self.fc = nn.Sequential(
+            nn.Linear(output_dims, 64),
+            nn.ReLU(),
             nn.Dropout(p=0.5),
-            nn.Linear(output_dims, n_class)
+            nn.Linear(64, n_class)
         )
+                    
         self.fc_con = nn.Sequential(
             nn.Linear(output_dims, 256),
             nn.ReLU(),
             nn.Linear(256, 256)
         )
         self.fc_va = nn.Sequential(
-            nn.Dropout(p=0.5),
-            nn.Linear(output_dims, 2)
+            # nn.Dropout(p=0.5),
+            nn.Linear(output_dims, 64),
+            nn.ReLU(),
+            nn.Linear(64, reconstruct_dim)
         )
         
-    def forward(self, x, mask=None, test=False):  # x: B x T x input_dims
+    def forward(self, x, mask_for_ts2loss=False, mask=None, is_pred_va=False, sameva=False):  # x: B x T x input_dims
+        x_ori=x.clone()
         nan_mask = ~x.isnan().any(axis=-1)
-        x[~nan_mask] = 0
+        pad_mask = x[:,:,2]==0 # pad -> True
+        x[~nan_mask] = -1.
+        if not is_pred_va:
+            x[pad_mask] = 0.
+        
         x = self.input_fc(x)  # B x T x Ch
 
-        if not test:
+        if mask_for_ts2loss:
             # generate & apply mask
             if mask is None:
                 if self.training:
@@ -156,30 +170,40 @@ class TSEncoder(nn.Module):
                 mask = x.new_full((x.size(0), x.size(1)), True, dtype=torch.bool)
                 mask[:, -1] = False
             
+            ori_mask = mask.detach()
             mask &= nan_mask
             x[~mask] = 0
+
+        else:
+            ori_mask=None
+
             
         # conv encoder
         x = x.transpose(1, 2)  # B x Ch x T
-        x = self.repr_dropout(self.feature_extractor(x))  # B x Co x T
+        # x = self.repr_dropout(self.feature_extractor(x))  # B x Co x T
+        x = self.feature_extractor(x)  # B x Co x T
         ori_feat = x = x.transpose(1, 2)  # B x T x Co
-        #print('ori_feat:',ori_feat.shape)
 
         # if labeled:
-        feat = x = F.max_pool1d(
+        feat = x = F.avg_pool1d(
             x.transpose(1, 2),
             kernel_size = x.size(1),
         ).transpose(1, 2).squeeze(1)
-        #print(x.shape)
+
         #x = torch.flatten(x, 1)
         logits = self.fc(x) 
-        con_logits = self.fc_con(x)
+        
+        # con_logits = self.fc_con(x)
+        con_logits = None
+        
         va_logits = self.fc_va(ori_feat)
-        #print('va logits:',va_logits.shape)
-        return logits, feat, ori_feat, con_logits, va_logits
+        if sameva:
+           va_logits[nan_mask] = x_ori[:,:,:-1][nan_mask]
+        va_logits[pad_mask] = 0.
+
+        return logits, feat, ori_feat, con_logits, va_logits, ori_mask
         
         return x
-        
 
 
     

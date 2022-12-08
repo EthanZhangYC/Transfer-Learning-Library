@@ -1,5 +1,5 @@
 from .resnet import *
 from .digits import *
-from .SECA import *
+from .encoder import *
 
-__all__ = ['resnet', 'digits', 'SECA']
+__all__ = ['resnet', 'digits', 'encoder']
