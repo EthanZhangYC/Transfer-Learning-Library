@@ -66,6 +66,7 @@ def load_data(args):
         filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
         # filename = '/home/yichen/ts2vec/datafiles/generated_features/Geolife%d_interpolated.npy'%args.trip_time
     else:
+        raise NotImplemented
         filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_trip%d_new_001meters.pickle'%args.trip_time
         # filename = '/home/yichen/ts2vec/datafiles/generated_features/Geolife%d.npy'%args.trip_time
 
@@ -78,9 +79,9 @@ def load_data(args):
     
     # print('dataset:', dataset)
         
-    train_x_geolife = dataset[0].squeeze(1)[:,:,:-1] # [141,248,4]
+    train_x_geolife = dataset[1].squeeze(1)[:,:,4:]
     train_y_geolife = dataset[2]
-    print('geo shape:', train_x_geolife.shape, train_y_geolife.shape)
+    # print('geo shape:', train_x_geolife.shape, train_y_geolife.shape)
     # x_unlabeled_geilife = X_unlabeled.squeeze(1)[:,:,:-1] # 366
 
     # Test_X = dataset[2].squeeze(1)
@@ -100,6 +101,7 @@ def load_data(args):
         filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
         # filename_mtl = '/home/yichen/ts2vec/datafiles/generated_features/MTL%d_interpolated.npy'%args.trip_time
     else:
+        raise NotImplemented
         # filename_mtl = '/home/xieyuan/Transportation-mode/TS2Vec/datafiles/Huawei/traindata_4class_xy_traintest_trip%d_new_001meters.pickle'%args.trip_time
         filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_trip%d_new_001meters.pickle'%args.trip_time
         # filename_mtl = '/home/yichen/ts2vec/datafiles/generated_features/MTL%d.npy'%args.trip_time
@@ -109,7 +111,7 @@ def load_data(args):
         kfold_dataset_mtl, X_unlabeled_mtl = pickle.load(f)
     
     dataset_mtl = kfold_dataset_mtl#[0]
-    train_X_mtl = dataset_mtl[0].squeeze(1)[:,:,:-1] # (518, 1, 248, 4)
+    train_X_mtl = dataset_mtl[1].squeeze(1)[:,:,4:] 
     train_y_mtl = dataset_mtl[2]
 
     # train_X_mtl = np.concatenate([train_X_mtl[:,:,0:2],train_X_mtl[:,:,4:]], axis=-1)    
@@ -117,11 +119,11 @@ def load_data(args):
 
     # X_unlabeled_mtl = X_unlabeled_mtl.squeeze(1)[:,:,:-1] # 366
     
-    test_X_mtl = dataset_mtl[3].squeeze(1)[:,:,:-1] 
+    test_X_mtl = dataset_mtl[4].squeeze(1)[:,:,4:]
     # test_X_mtl = np.concatenate([test_X_mtl[:,:,0:2],test_X_mtl[:,:,4:]], axis=-1)
 
     test_Y_mtl = dataset_mtl[5]
-    print('shape:', test_Y_mtl.shape)
+    # print('shape:', test_Y_mtl.shape)
 
     # class_dict={}
     # for y in train_y_mtl:
@@ -138,18 +140,19 @@ def load_data(args):
     # test_X = test_dataset[0] 
     # test_y = test_dataset[1]
 
-    if args.use_unlabel:
-        print('using unlabeled data')
-        train_data = np.concatenate([train_X_mtl],axis=0)
-    else:
-        train_data = train_X_mtl
-    train_data = np.concatenate([train_data, train_X_mtl], axis=0)
+    # if args.use_unlabel:
+    #     raise NotImplemented
+    #     print('using unlabeled data')
+    #     train_data = np.concatenate([train_X_mtl],axis=0)
+    # else:
+    #     train_data = train_X_mtl
+    # train_data = np.concatenate([train_data, train_X_mtl], axis=0)
         
     # masked_train_X = mask_data(Train_X)
     # masked_train_X_mtl = mask_data(train_X_mtl)
 
-    print('Reading Data: (train: geolife + Huawei, test: Huawei)')
-    print('Total shape: '+str(train_data.shape))
+    print('Reading Data: (train: geolife + MTL, test: MTL)')
+    # print('Total shape: '+str(train_data.shape))
     print('GeoLife shape: '+str(train_x_geolife.shape))
     print('MTL shape: '+str(train_X_mtl.shape)+str(test_X_mtl.shape))
     # print('Huawei shape: '+str(train_X_mtl.shape) + str(test_X_mtl.shape))
@@ -157,7 +160,7 @@ def load_data(args):
     n_geolife = train_x_geolife.shape[0]
     n_mtl = train_X_mtl.shape[0]
 
-    print('geolife:', n_geolife)
+    # print('geolife:', n_geolife)
 
     train_dataset_geolife = TensorDataset(
         torch.from_numpy(train_x_geolife).to(torch.float),
