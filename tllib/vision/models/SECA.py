@@ -216,7 +216,7 @@ def generate_binomial_mask(B, T, p=0.5):
     return torch.from_numpy(np.random.binomial(1, p, size=(B, T))).to(torch.bool)
 
 class TSEncoder(nn.Module):
-    def __init__(self, input_dims=9, output_dims=64, hidden_dims=64, depth=10, mask_mode='binomial', n_class=4):
+    def __init__(self, input_dims=6, output_dims=64, hidden_dims=64, depth=10, mask_mode='binomial', n_class=4):
         super().__init__()
         self.input_dims = input_dims
         self.output_dims = output_dims
@@ -230,12 +230,7 @@ class TSEncoder(nn.Module):
             kernel_size=3
         )
         self.repr_dropout = nn.Dropout(p=0.1)
-
-        # self.fc = nn.Sequential(
-        #     nn.Dropout(p=0.5),
-        #     nn.Linear(output_dims, n_class)
-        # )
-
+        
         self.fc = nn.Sequential(
             nn.Linear(output_dims, 64),
             nn.ReLU(),
@@ -243,40 +238,35 @@ class TSEncoder(nn.Module):
             nn.Linear(64, n_class)
         )
                     
-        self.fc_con = nn.Sequential(
-            nn.Linear(output_dims, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256)
-        )
-        self.fc_va = nn.Sequential(
-            nn.Dropout(p=0.5),
-            nn.Linear(output_dims, 2)
-        )
+        # self.fc_con = nn.Sequential(
+        #     nn.Linear(output_dims, 256),
+        #     nn.ReLU(),
+        #     nn.Linear(256, 256)
+        # )
+        # self.fc_va = nn.Sequential(
+        #     # nn.Dropout(p=0.5),
+        #     nn.Linear(output_dims, 64),
+        #     nn.ReLU(),
+        #     nn.Linear(64, reconstruct_dim)
+        # )
         
     def forward(self, x):  # x: B x T x input_dims
-        nan_mask = ~x.isnan().any(axis=-1)
-        x[~nan_mask] = 0
+        # nan_mask = ~x.isnan().any(axis=-1)
+        pad_mask = x[:,:,0]==0 # pad -> True
+        # x[~nan_mask] = -1.
+        x[pad_mask] = 0.
+
         x = self.input_fc(x)  # B x T x Ch
-            
+
         # conv encoder
         x = x.transpose(1, 2)  # B x Ch x T
-
-        # print('x shape:', x.shape)
-
         x = self.feature_extractor(x)  # B x Co x T
-        ori_feat = x = x.transpose(1, 2)  # B x T x Co
-        # x = x.transpose(1, 2)  # B x T x Co
+        x = x.transpose(1, 2)  # B x T x Co
 
-        # if labeled:
-        feat = x = F.max_pool1d(
+        feat = x = F.avg_pool1d(
             x.transpose(1, 2),
             kernel_size = x.size(1),
         ).transpose(1, 2).squeeze(1)
 
-        logits = self.fc(x) 
-        con_logits = self.fc_con(x)
-        va_logits = self.fc_va(ori_feat)
-
-        # return logits, feat, ori_feat, con_logits, va_logits
         return feat
     

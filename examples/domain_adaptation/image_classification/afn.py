@@ -16,7 +16,11 @@ from torch.optim import SGD, Adam
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
+import encoder
+
 import utils
+import tllib.vision.models as models
+
 from tllib.normalization.afn import AdaptiveFeatureNorm, ImageClassifier
 from tllib.modules.entropy import entropy
 from tllib.utils.data import ForeverDataIterator
@@ -36,13 +40,12 @@ def main(args: argparse.Namespace):
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
-        cudnn.deterministic = True
+        # cudnn.deterministic = True
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
                       'which can slow down your training considerably! '
                       'You may see unexpected behavior when restarting '
                       'from checkpoints.')
-
     cudnn.benchmark = True
 
     # Data loading code
@@ -75,25 +78,29 @@ def main(args: argparse.Namespace):
     train_target_iter = ForeverDataIterator(train_target_loader)
 
     # create model
-    print("=> using model '{}'".format(args.arch))
+    # print("=> using model '{}'".format(args.arch))
     backbone = utils.get_model(args.arch, pretrain=not args.scratch)
     pool_layer = nn.Identity() if args.no_pool else None
     classifier = ImageClassifier(backbone, num_classes, args.num_blocks,
                                  bottleneck_dim=args.bottleneck_dim, dropout_p=args.dropout_p,
                                  pool_layer=pool_layer, finetune=not args.scratch).to(device)
+    # classifier = encoder.TSEncoder().cuda()
     adaptive_feature_norm = AdaptiveFeatureNorm(args.delta).to(device)
 
     # define optimizer
     # the learning rate is fixed according to origin paper
-    optimizer = Adam(classifier.get_parameters(), args.lr, weight_decay=args.weight_decay)
+    # optimizer = Adam(classifier.get_parameters(), args.lr, weight_decay=args.weight_decay)
+    optimizer = Adam(classifier.parameters(), args.lr, weight_decay=args.weight_decay)
 
     # resume from the best checkpoint
     if args.phase != 'train':
+        raise NotImplemented
         checkpoint = torch.load(logger.get_checkpoint_path('best'), map_location='cpu')
         classifier.load_state_dict(checkpoint)
 
     # analysis the model
     if args.phase == 'analysis':
+        raise NotImplemented
         # extract features from both domains
         feature_extractor = nn.Sequential(classifier.backbone, classifier.pool_layer, classifier.bottleneck).to(device)
         source_feature = collect_feature(train_source_loader, feature_extractor, device)
@@ -108,6 +115,7 @@ def main(args: argparse.Namespace):
         return
 
     if args.phase == 'test':
+        raise NotImplemented
         acc1 = utils.validate(test_loader, classifier, args, device)
         print(acc1)
         return
@@ -129,8 +137,8 @@ def main(args: argparse.Namespace):
             best_epoch = epoch
         best_acc1 = max(acc1, best_acc1)
 
-    # print("best_acc1 = {:3.1f}".format(best_acc1))
-    print("best_acc1 = {:3.1f}({:d})".format(best_acc1, best_epoch))
+        # print("best_acc1 = {:3.1f}".format(best_acc1))
+        print("best_acc1 = {:3.1f}({:d})".format(best_acc1, best_epoch))
 
     # evaluate on test set
     # classifier.load_state_dict(torch.load(logger.get_checkpoint_path('best')))
@@ -140,8 +148,10 @@ def main(args: argparse.Namespace):
     logger.close()
 
 
-def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator, model: ImageClassifier,
-          adaptive_feature_norm: AdaptiveFeatureNorm, optimizer: SGD, epoch: int, args: argparse.Namespace):
+# def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator, model: ImageClassifier,
+#           adaptive_feature_norm: AdaptiveFeatureNorm, optimizer: SGD, epoch: int, args: argparse.Namespace):
+def train(train_source_iter, train_target_iter, model,
+          adaptive_feature_norm, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':3.1f')
     data_time = AverageMeter('Data', ':3.1f')
     cls_losses = AverageMeter('Cls Loss', ':3.2f')
@@ -160,6 +170,7 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
 
     end = time.time()
     for i in range(args.iters_per_epoch):
+        end = time.time()
         x_s, labels_s = next(train_source_iter)[:2]
         x_t, = next(train_target_iter)[:1]
 
@@ -211,8 +222,8 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='AFN for Unsupervised Domain Adaptation')
     # dataset parameters
-    parser.add_argument('root', metavar='DIR',
-                        help='root path of dataset')
+    # parser.add_argument('root', metavar='DIR',
+    #                     help='root path of dataset')
     # parser.add_argument('-d', '--data', metavar='DATA', default='Office31', choices=utils.get_dataset_names(),
     #                     help='dataset: ' + ' | '.join(utils.get_dataset_names()) +
     #                          ' (default: Office31)')
