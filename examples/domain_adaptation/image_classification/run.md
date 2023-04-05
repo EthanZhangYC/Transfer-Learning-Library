@@ -4,14 +4,14 @@
 ############################ AFN ###################################
 
 
-CUDA_VISIBLE_DEVICES=6 \
+CUDA_VISIBLE_DEVICES=8 \
 python afn.py \
 --epochs 30 \
 --batch-size 64 \
--i 390 \
+-i 294 \
 --seed 42 \
---lr 1e-3 \
---wd 0. \
+--lr 5e-4 \
+--wd 1e-4 \
 --bottleneck-dim 64 \
 --interpolated \
 --trip_time 20 \

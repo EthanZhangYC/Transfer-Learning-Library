@@ -38,8 +38,8 @@ def main(args: argparse.Namespace):
     print(args)
 
     if args.seed is not None:
-        random.seed(args.seed)
-        torch.manual_seed(args.seed)
+        # random.seed(args.seed)
+        # torch.manual_seed(args.seed)
         # cudnn.deterministic = True
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
@@ -79,12 +79,12 @@ def main(args: argparse.Namespace):
 
     # create model
     # print("=> using model '{}'".format(args.arch))
-    backbone = utils.get_model(args.arch, pretrain=not args.scratch)
-    pool_layer = nn.Identity() if args.no_pool else None
-    classifier = ImageClassifier(backbone, num_classes, args.num_blocks,
-                                 bottleneck_dim=args.bottleneck_dim, dropout_p=args.dropout_p,
-                                 pool_layer=pool_layer, finetune=not args.scratch).to(device)
-    # classifier = encoder.TSEncoder().cuda()
+    # backbone = utils.get_model(args.arch, pretrain=not args.scratch)
+    # pool_layer = nn.Identity() if args.no_pool else None
+    # classifier = ImageClassifier(backbone, num_classes, args.num_blocks,
+    #                              bottleneck_dim=args.bottleneck_dim, dropout_p=args.dropout_p,
+    #                              pool_layer=pool_layer, finetune=not args.scratch).to(device)
+    classifier = encoder.TSEncoder().to(device)
     adaptive_feature_norm = AdaptiveFeatureNorm(args.delta).to(device)
 
     # define optimizer
