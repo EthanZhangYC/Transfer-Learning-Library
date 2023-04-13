@@ -52,9 +52,9 @@ def main(args: argparse.Namespace):
     print(args)
 
     if args.seed is not None:
-        random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        cudnn.deterministic = True
+        # random.seed(args.seed)
+        # torch.manual_seed(args.seed)
+        # cudnn.deterministic = True
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
                       'which can slow down your training considerably! '
@@ -64,52 +64,57 @@ def main(args: argparse.Namespace):
     cudnn.benchmark = True
 
     # Data loading code
-    train_source_transform = utils.get_train_transform(args.train_resizing, scale=(0.08, 1.0), ratio=(3. / 4., 4. / 3.),
-                                                       random_horizontal_flip=not args.no_hflip,
-                                                       random_color_jitter=False, resize_size=args.resize_size,
-                                                       norm_mean=args.norm_mean, norm_std=args.norm_std)
-    weak_augment = utils.get_train_transform(args.train_resizing, scale=args.scale, ratio=args.ratio,
-                                             random_horizontal_flip=not args.no_hflip,
-                                             random_color_jitter=False, resize_size=args.resize_size,
-                                             norm_mean=args.norm_mean, norm_std=args.norm_std)
-    strong_augment = utils.get_train_transform(args.train_resizing, scale=args.scale, ratio=args.ratio,
-                                               random_horizontal_flip=not args.no_hflip,
-                                               random_color_jitter=False, resize_size=args.resize_size,
-                                               norm_mean=args.norm_mean, norm_std=args.norm_std,
-                                               auto_augment=args.auto_augment)
-    train_target_transform = MultipleApply([weak_augment, strong_augment])
-    val_transform = utils.get_val_transform(args.val_resizing, resize_size=args.resize_size,
-                                            norm_mean=args.norm_mean, norm_std=args.norm_std)
+    # train_source_transform = utils.get_train_transform(args.train_resizing, scale=(0.08, 1.0), ratio=(3. / 4., 4. / 3.),
+    #                                                    random_horizontal_flip=not args.no_hflip,
+    #                                                    random_color_jitter=False, resize_size=args.resize_size,
+    #                                                    norm_mean=args.norm_mean, norm_std=args.norm_std)
+    # weak_augment = utils.get_train_transform(args.train_resizing, scale=args.scale, ratio=args.ratio,
+    #                                          random_horizontal_flip=not args.no_hflip,
+    #                                          random_color_jitter=False, resize_size=args.resize_size,
+    #                                          norm_mean=args.norm_mean, norm_std=args.norm_std)
+    # strong_augment = utils.get_train_transform(args.train_resizing, scale=args.scale, ratio=args.ratio,
+    #                                            random_horizontal_flip=not args.no_hflip,
+    #                                            random_color_jitter=False, resize_size=args.resize_size,
+    #                                            norm_mean=args.norm_mean, norm_std=args.norm_std,
+    #                                            auto_augment=args.auto_augment)
+    # train_target_transform = MultipleApply([weak_augment, strong_augment])
+    # val_transform = utils.get_val_transform(args.val_resizing, resize_size=args.resize_size,
+    #                                         norm_mean=args.norm_mean, norm_std=args.norm_std)
 
-    print("train_source_transform: ", train_source_transform)
-    print("train_target_transform: ", train_target_transform)
-    print("val_transform: ", val_transform)
+    # print("train_source_transform: ", train_source_transform)
+    # print("train_target_transform: ", train_target_transform)
+    # print("val_transform: ", val_transform)
 
-    train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, args.class_names = \
-        utils.get_dataset(args.data, args.root, args.source, args.target, train_source_transform, val_transform,
-                          train_target_transform=train_target_transform)
-    train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
-                                     shuffle=True, num_workers=args.workers, drop_last=True)
-    train_target_loader = DataLoader(train_target_dataset, batch_size=args.unlabeled_batch_size,
-                                     shuffle=True, num_workers=args.workers, drop_last=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+    # train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, args.class_names = \
+    #     utils.get_dataset(args.data, args.root, args.source, args.target, train_source_transform, val_transform,
+    #                       train_target_transform=train_target_transform)
+    # train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
+    #                                  shuffle=True, num_workers=args.workers, drop_last=True)
+    # train_target_loader = DataLoader(train_target_dataset, batch_size=args.unlabeled_batch_size,
+    #                                  shuffle=True, num_workers=args.workers, drop_last=True)
+    # val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+    # test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
 
-    train_source_iter = ForeverDataIterator(train_source_loader)
-    train_target_iter = ForeverDataIterator(train_target_loader)
+    # train_source_iter = ForeverDataIterator(train_source_loader)
+    # train_target_iter = ForeverDataIterator(train_target_loader)
 
     # create model
-    print("=> using model '{}'".format(args.arch))
-    backbone = utils.get_model(args.arch, pretrain=not args.scratch)
-    pool_layer = nn.Identity() if args.no_pool else None
-    classifier = ImageClassifier(backbone, num_classes, bottleneck_dim=args.bottleneck_dim,
-                                 pool_layer=pool_layer, finetune=not args.scratch).to(device)
-    print(classifier)
+    # print("=> using model '{}'".format(args.arch))
+    # backbone = utils.get_model(args.arch, pretrain=not args.scratch)
+    # pool_layer = nn.Identity() if args.no_pool else None
+    # classifier = ImageClassifier(backbone, num_classes, bottleneck_dim=args.bottleneck_dim,
+    #                              pool_layer=pool_layer, finetune=not args.scratch).to(device)
+    # print(classifier)
+    train_source_iter, train_target_iter, val_loader = utils.load_data_multitgt(args)
+    classifier = models.TSEncoder().to(device)
+    classifier_features_dim=64
 
     # define optimizer and lr scheduler
-    optimizer = SGD(classifier.get_parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay,
-                    nesterov=True)
-    lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
+    # optimizer = SGD(classifier.get_parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay,
+    #                 nesterov=True)
+    # lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
+    optimizer = Adam(classifier.parameters(), args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
+    lr_scheduler=None
 
     # resume from the best checkpoint
     if args.phase != 'train':
@@ -155,9 +160,9 @@ def main(args: argparse.Namespace):
     print("best_acc1 = {:3.1f}".format(best_acc1))
 
     # evaluate on test set
-    classifier.load_state_dict(torch.load(logger.get_checkpoint_path('best')))
-    acc1 = utils.validate(test_loader, classifier, args, device)
-    print("test_acc1 = {:3.1f}".format(acc1))
+    # classifier.load_state_dict(torch.load(logger.get_checkpoint_path('best')))
+    # acc1 = utils.validate(test_loader, classifier, args, device)
+    # print("test_acc1 = {:3.1f}".format(acc1))
 
     logger.close()
 
@@ -185,8 +190,10 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
 
     end = time.time()
     for i in range(args.iters_per_epoch):
-        x_s, labels_s = next(train_source_iter)[:2]
-        (x_t, x_t_strong), labels_t = next(train_target_iter)[:2]
+        # x_s, labels_s = next(train_source_iter)[:2]
+        # (x_t, x_t_strong), labels_t = next(train_target_iter)[:2]
+        x_s,labels_s,_ = next(train_source_iter)
+        (x_t, x_t_strong),_,_ = next(train_target_iter)
 
         x_s = x_s.to(device)
         x_t = x_t.to(device)

@@ -18,6 +18,9 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
 import utils
+import tllib.vision.models as models
+
+
 from tllib.alignment.dann import DomainAdversarialLoss
 from tllib.alignment.bsp import BatchSpectralPenalizationLoss, ImageClassifier
 from tllib.modules.domain_discriminator import DomainDiscriminator
@@ -35,9 +38,9 @@ def main(args: argparse.Namespace):
     print(args)
 
     if args.seed is not None:
-        random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        cudnn.deterministic = True
+        # random.seed(args.seed)
+        # torch.manual_seed(args.seed)
+        # cudnn.deterministic = True
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
                       'which can slow down your training considerably! '
@@ -46,48 +49,27 @@ def main(args: argparse.Namespace):
 
     cudnn.benchmark = True
 
-    # Data loading code
-    # train_transform = utils.get_train_transform(args.train_resizing, scale=args.scale, ratio=args.ratio,
-    #                                             random_horizontal_flip=not args.no_hflip,
-    #                                             random_color_jitter=False, resize_size=args.resize_size,
-    #                                             norm_mean=args.norm_mean, norm_std=args.norm_std)
-    # val_transform = utils.get_val_transform(args.val_resizing, resize_size=args.resize_size,
-    #                                         norm_mean=args.norm_mean, norm_std=args.norm_std)
-    # print("train_transform: ", train_transform)
-    # print("val_transform: ", val_transform)
-
-    # train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, args.class_names = \
-    #     utils.get_dataset(args.data, args.root, args.source, args.target, train_transform, val_transform)
-    # train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
-    #                                  shuffle=True, num_workers=args.workers, drop_last=True)
-    # train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
-    #                                  shuffle=True, num_workers=args.workers, drop_last=True)
-    # val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
-    # test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
-
-    num_classes = 4
-    train_source_dataset, train_target_dataset, val_dataset = utils.load_data(args)
-    train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
-                                     shuffle=True, num_workers=args.workers, drop_last=True)
-    train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
-                                     shuffle=True, num_workers=args.workers, drop_last=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
-
-    train_source_iter = ForeverDataIterator(train_source_loader)
-    train_target_iter = ForeverDataIterator(train_target_loader)
+    train_source_iter, train_target_iter, val_loader = utils.load_data(args)
+    classifier = models.TSEncoder().to(device)
+    classifier_features_dim=64
 
     # create model
-    print("=> using model '{}'".format(args.arch))
-    backbone = utils.get_model(args.arch, pretrain=not args.scratch)
-    pool_layer = nn.Identity() if args.no_pool else None
-    classifier = ImageClassifier(backbone, num_classes, bottleneck_dim=args.bottleneck_dim,
-                                 pool_layer=pool_layer, finetune=not args.scratch).to(device)
-    domain_discri = DomainDiscriminator(in_feature=classifier.features_dim, hidden_size=1024).to(device)
+    # print("=> using model '{}'".format(args.arch))
+    # backbone = utils.get_model(args.arch, pretrain=not args.scratch)
+    # pool_layer = nn.Identity() if args.no_pool else None
+    # classifier = ImageClassifier(backbone, num_classes, bottleneck_dim=args.bottleneck_dim,
+    #                              pool_layer=pool_layer, finetune=not args.scratch).to(device)
+    domain_discri = DomainDiscriminator(in_feature=classifier_features_dim, hidden_size=1024).to(device)
 
     # define optimizer and lr scheduler
-    optimizer = Adam(classifier.get_parameters() + domain_discri.get_parameters(),
-                    args.lr, momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
-    lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
+    # optimizer = Adam(classifier.get_parameters() + domain_discri.get_parameters(),
+    #                 args.lr, momentum=args.momentum, weight_decay=args.weight_decay, nesterov=True)
+    # lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
+    
+    optimizer = Adam([
+            {'params':classifier.parameters()},
+            {'params':domain_discri.parameters()}], args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
+    lr_scheduler=None
 
     # define loss function
     domain_adv = DomainAdversarialLoss(domain_discri).to(device)
@@ -143,13 +125,13 @@ def main(args: argparse.Namespace):
         print("Pretraining process is done.")
 
     checkpoint = torch.load(args.pretrain, map_location='cpu')
-    classifier.load_state_dict(checkpoint)
+    classifier.load_state_dict(checkpoint['encoder_tgt_state_dict'], strict=False)
 
     # start training
     best_acc1 = 0.
     best_epoch = 0
     for epoch in range(args.epochs):
-        print("lr:", lr_scheduler.get_last_lr()[0])
+        # print("lr:", lr_scheduler.get_last_lr()[0])
         # train for one epoch
         train(train_source_iter, train_target_iter, classifier, domain_adv, bsp_penalty, optimizer,
               lr_scheduler, epoch, args)
@@ -194,8 +176,10 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
 
     end = time.time()
     for i in range(args.iters_per_epoch):
-        x_s, labels_s = next(train_source_iter)[:2]
-        x_t, = next(train_target_iter)[:1]
+        # x_s, labels_s = next(train_source_iter)[:2]
+        # x_t, = next(train_target_iter)[:1]
+        x_s,labels_s,_ = next(train_source_iter)
+        x_t,_,_ = next(train_target_iter)
 
         x_s = x_s.to(device)
         x_t = x_t.to(device)
@@ -206,7 +190,7 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
 
         # compute output
         x = torch.cat((x_s, x_t), dim=0)
-        y, f = model(x)
+        y, f,_,_ = model(x)
         y_s, y_t = y.chunk(2, dim=0)
         f_s, f_t = f.chunk(2, dim=0)
 
@@ -226,7 +210,7 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        lr_scheduler.step()
+        # lr_scheduler.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -239,11 +223,11 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='BSP for Unsupervised Domain Adaptation')
     # dataset parameters
-    parser.add_argument('root', metavar='DIR',
-                        help='root path of dataset')
-    parser.add_argument('-d', '--data', metavar='DATA', default='Office31', choices=utils.get_dataset_names(),
-                        help='dataset: ' + ' | '.join(utils.get_dataset_names()) +
-                             ' (default: Office31)')
+    # parser.add_argument('root', metavar='DIR',
+    #                     help='root path of dataset')
+    # parser.add_argument('-d', '--data', metavar='DATA', default='Office31', choices=utils.get_dataset_names(),
+    #                     help='dataset: ' + ' | '.join(utils.get_dataset_names()) +
+    #                          ' (default: Office31)')
     parser.add_argument('-s', '--source', help='source domain(s)', nargs='+')
     parser.add_argument('-t', '--target', help='target domain(s)', nargs='+')
     parser.add_argument('--train-resizing', type=str, default='default')
@@ -261,11 +245,11 @@ if __name__ == '__main__':
     parser.add_argument('--norm-std', type=float, nargs='+',
                         default=(0.229, 0.224, 0.225), help='normalization std')
     # model parameters
-    parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                        # choices=utils.get_model_names(),
-                        help='backbone architecture: ' +
-                             ' | '.join(utils.get_model_names()) +
-                             ' (default: resnet18)')
+    # parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
+    #                     # choices=utils.get_model_names(),
+    #                     help='backbone architecture: ' +
+    #                          ' | '.join(utils.get_model_names()) +
+    #                          ' (default: resnet18)')
     parser.add_argument('--pretrain', type=str, default=None,
                         help='pretrain checkpoint for classification model')
     parser.add_argument('--bottleneck-dim', default=256, type=int,
@@ -313,6 +297,7 @@ if __name__ == '__main__':
     
     parser.add_argument('--use_unlabel', action="store_true", help='Whether to perform evaluation after training')
     parser.add_argument('--interpolated', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument('--interpolatedlinear', action="store_true", help='Whether to perform evaluation after training')
     parser.add_argument('--trip_time', type=int, default=20, help='')
 
     args = parser.parse_args()

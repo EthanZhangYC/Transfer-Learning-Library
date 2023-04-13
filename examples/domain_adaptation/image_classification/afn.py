@@ -16,8 +16,7 @@ from torch.optim import SGD, Adam
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
-import encoder
-
+# import encoder
 import utils
 import tllib.vision.models as models
 
@@ -28,7 +27,7 @@ from tllib.utils.metric import accuracy
 from tllib.utils.meter import AverageMeter, ProgressMeter
 from tllib.utils.logger import CompleteLogger
 from tllib.utils.analysis import collect_feature, tsne, a_distance
-
+import pdb
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -48,35 +47,6 @@ def main(args: argparse.Namespace):
                       'from checkpoints.')
     cudnn.benchmark = True
 
-    # Data loading code
-    # train_transform = utils.get_train_transform(args.train_resizing, random_horizontal_flip=not args.no_hflip,
-    #                                             random_color_jitter=False, resize_size=args.resize_size,
-    #                                             norm_mean=args.norm_mean, norm_std=args.norm_std)
-    # val_transform = utils.get_val_transform(args.val_resizing, resize_size=args.resize_size,
-    #                                         norm_mean=args.norm_mean, norm_std=args.norm_std)
-    # print("train_transform: ", train_transform)
-    # print("val_transform: ", val_transform)
-
-    # train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, args.class_names = \
-    #     utils.get_dataset(args.data, args.root, args.source, args.target, train_transform, val_transform)
-    # train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
-    #                                  shuffle=True, num_workers=args.workers, drop_last=True)
-    # train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
-    #                                  shuffle=True, num_workers=args.workers, drop_last=True)
-    # val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
-    # test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
-
-    num_classes = 4
-    train_source_dataset, train_target_dataset, val_dataset = utils.load_data(args)
-    train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
-                                     shuffle=True, num_workers=args.workers, drop_last=True)
-    train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
-                                     shuffle=True, num_workers=args.workers, drop_last=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
-
-    train_source_iter = ForeverDataIterator(train_source_loader)
-    train_target_iter = ForeverDataIterator(train_target_loader)
-
     # create model
     # print("=> using model '{}'".format(args.arch))
     # backbone = utils.get_model(args.arch, pretrain=not args.scratch)
@@ -84,13 +54,14 @@ def main(args: argparse.Namespace):
     # classifier = ImageClassifier(backbone, num_classes, args.num_blocks,
     #                              bottleneck_dim=args.bottleneck_dim, dropout_p=args.dropout_p,
     #                              pool_layer=pool_layer, finetune=not args.scratch).to(device)
-    classifier = encoder.TSEncoder().to(device)
+    train_src_iter, train_tgt_iter, val_loader = utils.load_data(args)
+    classifier = models.TSEncoder().to(device)
     adaptive_feature_norm = AdaptiveFeatureNorm(args.delta).to(device)
 
     # define optimizer
     # the learning rate is fixed according to origin paper
-    # optimizer = Adam(classifier.get_parameters(), args.lr, weight_decay=args.weight_decay)
-    optimizer = Adam(classifier.parameters(), args.lr, weight_decay=args.weight_decay)
+    # optimizer = SGD(classifier.parameters(), args.lr, momentum=0.9, weight_decay=args.weight_decay)
+    optimizer = Adam(classifier.parameters(), args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
 
     # resume from the best checkpoint
     if args.phase != 'train':
@@ -125,7 +96,7 @@ def main(args: argparse.Namespace):
     best_epoch = 0
     for epoch in range(args.epochs):
         # train for one epoch
-        train(train_source_iter, train_target_iter, classifier, adaptive_feature_norm, optimizer, epoch, args)
+        train(train_src_iter, train_tgt_iter, classifier, adaptive_feature_norm, optimizer, epoch, args)
 
         # evaluate on validation set
         acc1 = utils.validate(val_loader, classifier, args, device)
@@ -162,7 +133,7 @@ def train(train_source_iter, train_target_iter, model,
 
     progress = ProgressMeter(
         args.iters_per_epoch,
-        [batch_time, data_time, cls_losses, norm_losses, src_feature_norm, tgt_feature_norm, cls_accs],
+        [cls_losses, norm_losses, src_feature_norm, tgt_feature_norm, cls_accs],
         prefix="Epoch: [{}]".format(epoch))
 
     # switch to train mode
@@ -171,8 +142,8 @@ def train(train_source_iter, train_target_iter, model,
     end = time.time()
     for i in range(args.iters_per_epoch):
         end = time.time()
-        x_s, labels_s = next(train_source_iter)[:2]
-        x_t, = next(train_target_iter)[:1]
+        x_s,labels_s,_ = next(train_source_iter)
+        x_t,_,_ = next(train_target_iter)
 
         x_s = x_s.to(device)
         x_t = x_t.to(device)
@@ -182,8 +153,8 @@ def train(train_source_iter, train_target_iter, model,
         data_time.update(time.time() - end)
 
         # compute output
-        y_s, f_s = model(x_s)
-        y_t, f_t = model(x_t)
+        y_s, f_s, _, _ = model(x_s, True)
+        y_t, f_t, _, _ = model(x_t, True)
 
         # classification loss
         cls_loss = F.cross_entropy(y_s, labels_s)
@@ -221,32 +192,12 @@ def train(train_source_iter, train_target_iter, model,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='AFN for Unsupervised Domain Adaptation')
-    # dataset parameters
-    # parser.add_argument('root', metavar='DIR',
-    #                     help='root path of dataset')
-    # parser.add_argument('-d', '--data', metavar='DATA', default='Office31', choices=utils.get_dataset_names(),
-    #                     help='dataset: ' + ' | '.join(utils.get_dataset_names()) +
-    #                          ' (default: Office31)')
+
     parser.add_argument('-s', '--source', help='source domain(s)', nargs='+')
     parser.add_argument('-t', '--target', help='target domain(s)', nargs='+')
-    parser.add_argument('--train-resizing', type=str, default='ran.crop')
-    parser.add_argument('--val-resizing', type=str, default='default')
-    parser.add_argument('--resize-size', type=int, default=224,
-                        help='the image size after resizing')
-    parser.add_argument('--no-hflip', action='store_true',
-                        help='no random horizontal flipping during training')
-    parser.add_argument('--norm-mean', type=float, nargs='+',
-                        default=(0.485, 0.456, 0.406), help='normalization mean')
-    parser.add_argument('--norm-std', type=float, nargs='+',
-                        default=(0.229, 0.224, 0.225), help='normalization std')
+
     # model parameters
-    parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                        # choices=utils.get_model_names(),
-                        help='backbone architecture: ' +
-                             ' | '.join(utils.get_model_names()) +
-                             ' (default: resnet18)')
-    parser.add_argument('--no-pool', action='store_true',
-                        help='no pool layer after the feature extractor.')
+
     parser.add_argument('--scratch', action='store_true', help='whether train from scratch.')
     parser.add_argument('-n', '--num-blocks', default=1, type=int, help='Number of basic blocks for classifier')
     parser.add_argument('--bottleneck-dim', default=1000, type=int, help='Dimension of bottleneck')
@@ -263,6 +214,7 @@ if __name__ == '__main__':
     parser.add_argument('--wd', '--weight-decay', default=5e-4, type=float,
                         metavar='W', help='weight decay (default: 5e-4)',
                         dest='weight_decay')
+    
     parser.add_argument('--trade-off-norm', default=0.05, type=float,
                         help='the trade-off hyper-parameter for norm loss')
     parser.add_argument('--trade-off-entropy', default=None, type=float,
@@ -288,6 +240,7 @@ if __name__ == '__main__':
     
     parser.add_argument('--use_unlabel', action="store_true", help='Whether to perform evaluation after training')
     parser.add_argument('--interpolated', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument('--interpolatedlinear', action="store_true", help='Whether to perform evaluation after training')
     parser.add_argument('--trip_time', type=int, default=20, help='')
 
     args = parser.parse_args()

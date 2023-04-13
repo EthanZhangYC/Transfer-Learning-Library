@@ -11,11 +11,13 @@ import os.path as osp
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
-from torch.optim import SGD
+from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader
 
 import utils
+import tllib.vision.models as models
+
 from tllib.modules.classifier import Classifier
 from tllib.utils.logger import CompleteLogger
 from tllib.utils.analysis import collect_feature, tsne, a_distance
@@ -29,9 +31,9 @@ def main(args):
     print(args)
 
     if args.seed is not None:
-        random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        cudnn.deterministic = True
+        # random.seed(args.seed)
+        # torch.manual_seed(args.seed)
+        # cudnn.deterministic = True
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
                       'which can slow down your training considerably! '
@@ -41,35 +43,40 @@ def main(args):
     cudnn.benchmark = True
 
     # Data loading code
-    train_transform = utils.get_train_transform(args.train_resizing, scale=args.scale, ratio=args.ratio,
-                                                random_horizontal_flip=not args.no_hflip,
-                                                random_color_jitter=False, resize_size=args.resize_size,
-                                                norm_mean=args.norm_mean, norm_std=args.norm_std)
-    val_transform = utils.get_val_transform(args.val_resizing, resize_size=args.resize_size,
-                                            norm_mean=args.norm_mean, norm_std=args.norm_std)
-    print("train_transform: ", train_transform)
-    print("val_transform: ", val_transform)
+    # train_transform = utils.get_train_transform(args.train_resizing, scale=args.scale, ratio=args.ratio,
+    #                                             random_horizontal_flip=not args.no_hflip,
+    #                                             random_color_jitter=False, resize_size=args.resize_size,
+    #                                             norm_mean=args.norm_mean, norm_std=args.norm_std)
+    # val_transform = utils.get_val_transform(args.val_resizing, resize_size=args.resize_size,
+    #                                         norm_mean=args.norm_mean, norm_std=args.norm_std)
+    # print("train_transform: ", train_transform)
+    # print("val_transform: ", val_transform)
 
-    train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, args.class_names = \
-        utils.get_dataset(args.data, args.root, args.source, args.target, train_transform, val_transform)
-    train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
-                                     shuffle=True, num_workers=args.workers, drop_last=True)
-    train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
-                                     shuffle=True, num_workers=args.workers, drop_last=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+    # train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, args.class_names = \
+    #     utils.get_dataset(args.data, args.root, args.source, args.target, train_transform, val_transform)
+    # train_source_loader = DataLoader(train_source_dataset, batch_size=args.batch_size,
+    #                                  shuffle=True, num_workers=args.workers, drop_last=True)
+    # train_target_loader = DataLoader(train_target_dataset, batch_size=args.batch_size,
+    #                                  shuffle=True, num_workers=args.workers, drop_last=True)
+    # val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
+    # test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
 
-    train_source_iter = ForeverDataIterator(train_source_loader)
+    # train_source_iter = ForeverDataIterator(train_source_loader)
 
     # create model
-    print("=> using model '{}'".format(args.arch))
-    backbone = utils.get_model(args.arch, pretrain=not args.scratch)
-    pool_layer = nn.Identity() if args.no_pool else None
-    classifier = Classifier(backbone, num_classes, pool_layer=pool_layer, finetune=not args.scratch).to(device)
-
+    # print("=> using model '{}'".format(args.arch))
+    # backbone = utils.get_model(args.arch, pretrain=not args.scratch)
+    # pool_layer = nn.Identity() if args.no_pool else None
+    # classifier = Classifier(backbone, num_classes, pool_layer=pool_layer, finetune=not args.scratch).to(device)
+    
+    train_source_iter, train_target_iter, val_loader = utils.load_data(args)
+    classifier = models.TSEncoder().to(device)
+    optimizer = Adam(classifier.parameters(), args.lr, weight_decay=args.wd, betas=(0.5, 0.99))
+    lr_scheduler=None
+    
     # define optimizer and lr scheduler
-    optimizer = SGD(classifier.get_parameters(), args.lr, momentum=args.momentum, weight_decay=args.wd, nesterov=True)
-    lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
+    # optimizer = SGD(classifier.get_parameters(), args.lr, momentum=args.momentum, weight_decay=args.wd, nesterov=True)
+    # lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
 
     # resume from the best checkpoint
     if args.phase != 'train':
@@ -99,7 +106,7 @@ def main(args):
     # start training
     best_acc1 = 0.
     for epoch in range(args.epochs):
-        print(lr_scheduler.get_lr())
+        # print(lr_scheduler.get_lr())
         # train for one epoch
         utils.empirical_risk_minimization(train_source_iter, classifier, optimizer, lr_scheduler, epoch, args, device)
 
@@ -116,7 +123,7 @@ def main(args):
 
     # evaluate on test set
     classifier.load_state_dict(torch.load(logger.get_checkpoint_path('best')))
-    acc1 = utils.validate(test_loader, classifier, args, device)
+    # acc1 = utils.validate(test_loader, classifier, args, device)
     print("test_acc1 = {:3.1f}".format(acc1))
 
     logger.close()
@@ -125,11 +132,11 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Source Only for Unsupervised Domain Adaptation')
     # dataset parameters
-    parser.add_argument('root', metavar='DIR',
-                        help='root path of dataset')
-    parser.add_argument('-d', '--data', metavar='DATA', default='Office31', choices=utils.get_dataset_names(),
-                        help='dataset: ' + ' | '.join(utils.get_dataset_names()) +
-                             ' (default: Office31)')
+    # parser.add_argument('root', metavar='DIR',
+    #                     help='root path of dataset')
+    # parser.add_argument('-d', '--data', metavar='DATA', default='Office31', choices=utils.get_dataset_names(),
+    #                     help='dataset: ' + ' | '.join(utils.get_dataset_names()) +
+    #                          ' (default: Office31)')
     parser.add_argument('-s', '--source', help='source domain(s)', nargs='+')
     parser.add_argument('-t', '--target', help='target domain(s)', nargs='+')
     parser.add_argument('--train-resizing', type=str, default='default')
@@ -147,11 +154,11 @@ if __name__ == '__main__':
     parser.add_argument('--norm-std', type=float, nargs='+',
                         default=(0.229, 0.224, 0.225), help='normalization std')
     # model parameters
-    parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
-                        choices=utils.get_model_names(),
-                        help='backbone architecture: ' +
-                             ' | '.join(utils.get_model_names()) +
-                             ' (default: resnet18)')
+    # parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
+    #                     choices=utils.get_model_names(),
+    #                     help='backbone architecture: ' +
+    #                          ' | '.join(utils.get_model_names()) +
+    #                          ' (default: resnet18)')
     parser.add_argument('--no-pool', action='store_true',
                         help='no pool layer after the feature extractor.')
     parser.add_argument('--scratch', action='store_true', help='whether train from scratch.')
@@ -184,5 +191,7 @@ if __name__ == '__main__':
     parser.add_argument("--phase", type=str, default='train', choices=['train', 'test', 'analysis'],
                         help="When phase is 'test', only test the model."
                              "When phase is 'analysis', only analysis the model.")
+    parser.add_argument('--interpolatedlinear', action="store_true", help='Whether to perform evaluation after training')
+
     args = parser.parse_args()
     main(args)

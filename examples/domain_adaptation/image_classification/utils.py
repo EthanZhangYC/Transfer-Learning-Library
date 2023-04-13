@@ -26,201 +26,305 @@ from tllib.utils.metric import accuracy, ConfusionMatrix
 from tllib.utils.meter import AverageMeter, ProgressMeter
 from tllib.vision.datasets.imagelist import MultipleDomainsDataset
 
-def get_model_names():
-    return sorted(
-        name for name in models.__dict__
-        if name.islower() and not name.startswith("__")
-        and callable(models.__dict__[name])
-    ) + timm.list_models()
 
 
-# def get_model(model_name, pretrain=True):
-#     if model_name in models.__dict__:
-#         # load models from tllib.vision.models
-#         backbone = models.__dict__[model_name](pretrained=pretrain)
-#     else:
-#         # load models from pytorch-image-models
-#         backbone = timm.create_model(model_name, pretrained=pretrain)
-#         try:
-#             backbone.out_features = backbone.get_classifier().in_features
-#             backbone.reset_classifier(0, '')
-#         except:
-#             backbone.out_features = backbone.head.in_features
-#             backbone.head = nn.Identity()
-#     return backbone
-
-def get_model(model_name, pretrain=True):
-    backbone = models.TSEncoder()
-    return backbone
+from torch.utils.data import TensorDataset, DataLoader
+import torchvision
 
 
-def get_dataset_names():
-    return sorted(
-        name for name in datasets.__dict__
-        if not name.startswith("__") and callable(datasets.__dict__[name])
-    ) + ['Digits']
+def get_label(single_dataset,idx,label_dict):
+    label = single_dataset[idx][1].item()
+    return label
+
+class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
+    """Samples elements randomly from a given list of indices for imbalanced dataset
+    Arguments:
+        indices (list, optional): a list of indices
+        num_samples (int, optional): number of samples to draw
+        callback_get_label func: a callback-like function which takes two arguments - dataset and index
+    """
+
+    def __init__(self, dataset, indices=None, num_samples=None, callback_get_label=None):
+                
+        # if indices is not provided, 
+        # all elements in the dataset will be considered
+        self.indices = list(range(len(dataset))) \
+            if indices is None else indices
+
+        # define custom callback
+        self.callback_get_label = callback_get_label
+
+        # if num_samples is not provided, 
+        # draw `len(indices)` samples in each iteration
+        self.num_samples = len(self.indices) \
+            if num_samples is None else num_samples
+        
+        
+        label_dict={'0':0,'1':0,'2':1,'3':1,'4':1}
+        label_to_count = {}
+        for idx in self.indices:
+            label = self._get_label(dataset, idx, label_dict)
+            if label in label_to_count:
+                label_to_count[label] += 1
+            else:
+                label_to_count[label] = 1
+        
+        weights = [1.0 / label_to_count[self._get_label(dataset, idx, label_dict)] for idx in self.indices]
+        self.weights = torch.DoubleTensor(weights)
+
+    def _get_label(self, dataset, idx, label_dict):
+        if self.callback_get_label:
+            return self.callback_get_label(dataset, idx, label_dict)
+        elif isinstance(dataset, torchvision.datasets.MNIST):
+            return dataset.train_labels[idx].item()
+        elif isinstance(dataset, torchvision.datasets.ImageFolder):
+            return dataset.imgs[idx][1]
+        elif isinstance(dataset, torch.utils.data.Subset):
+            return dataset.dataset.imgs[idx][1]
+        else:
+            raise NotImplementedError
+
+    # sample class balance training batch 
+    def __iter__(self):
+        return (self.indices[i] for i in torch.multinomial(self.weights, self.num_samples, replacement=True))
+
+    def __len__(self):
+        return self.num_samples
+
+class ForeverDataIterator:
+    r"""A data iterator that will never stop producing data"""
+
+    def __init__(self, data_loader: DataLoader, device=None):
+        self.data_loader = data_loader
+        self.iter = iter(self.data_loader)
+        self.device = device
+
+    def __next__(self):
+        try:
+            data = next(self.iter)
+        except StopIteration:
+            self.iter = iter(self.data_loader)
+            data = next(self.iter)
+        return data
+
+    def __len__(self):
+        return len(self.data_loader)
 
 
 def load_data(args):
-    if args.interpolated:
-        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
-        # filename = '/home/yichen/ts2vec/datafiles/generated_features/Geolife%d_interpolated.npy'%args.trip_time
-    else:
-        raise NotImplemented
-        filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_trip%d_new_001meters.pickle'%args.trip_time
-        # filename = '/home/yichen/ts2vec/datafiles/generated_features/Geolife%d.npy'%args.trip_time
-
-
+    # filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
+    filename = '/home/yichen/TS2Vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedNAN_5s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_doubletest_0218.pickle'
 
     with open(filename, 'rb') as f:
         kfold_dataset, X_unlabeled = pickle.load(f)
     dataset = kfold_dataset
-
     
-    # print('dataset:', dataset)
-        
-    train_x_geolife = dataset[1].squeeze(1)[:,:,4:]
-    train_y_geolife = dataset[2]
-    # print('geo shape:', train_x_geolife.shape, train_y_geolife.shape)
-    # x_unlabeled_geilife = X_unlabeled.squeeze(1)[:,:,:-1] # 366
-
-    # Test_X = dataset[2].squeeze(1)
-    # Test_Y_ori = dataset[3]
-
-
-    # class_dict={}
-    # for y in train_y_geolife:
-    #     if y not in class_dict:
-    #         class_dict[y]=1
-    #     else:
-    #         class_dict[y]+=1
-    # print('All geolife class:', class_dict)
-    
-    if args.interpolated:
-        # filename_mtl = '/home/xieyuan/Transportation-mode/TS2Vec/datafiles/Huawei/traindata_4class_xy_traintest_interpolatedLinear_trip%d_new_001meters.pickle'%args.trip_time
-        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
-        # filename_mtl = '/home/yichen/ts2vec/datafiles/generated_features/MTL%d_interpolated.npy'%args.trip_time
+    if args.interpolatedlinear:
+        train_x = dataset[1].squeeze(1)
+    elif args.interpolated:
+        train_x = dataset[2].squeeze(1)
     else:
-        raise NotImplemented
-        # filename_mtl = '/home/xieyuan/Transportation-mode/TS2Vec/datafiles/Huawei/traindata_4class_xy_traintest_trip%d_new_001meters.pickle'%args.trip_time
-        filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_trip%d_new_001meters.pickle'%args.trip_time
-        # filename_mtl = '/home/yichen/ts2vec/datafiles/generated_features/MTL%d.npy'%args.trip_time
+        train_x = dataset[0].squeeze(1)
+        
+    train_y = dataset[3]
+    train_x = train_x[:,:,4:]   
+    pad_mask_source = train_x[:,:,0]==0
+    train_x[pad_mask_source] = 0.
+        
+    class_dict={}
+    for y in train_y:
+        if y not in class_dict:
+            class_dict[y]=1
+        else:
+            class_dict[y]+=1
+    print('Geolife:',dict(sorted(class_dict.items())))
     
+    
+    # filename_mtl = '/home/xieyuan/Transportation-mode/TS2Vec/datafiles/Huawei/traindata_4class_xy_traintest_interpolatedLinear_trip%d_new_001meters.pickle'%args.trip_time
+    # filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
+    filename_mtl = '/home/yichen/TS2Vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedNAN_5s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_doubletest_0226_sharedminmax_balanced.pickle'
     
     with open(filename_mtl, 'rb') as f:
-        kfold_dataset_mtl, X_unlabeled_mtl = pickle.load(f)
+        kfold_dataset, X_unlabeled_mtl = pickle.load(f)
+    dataset_mtl = kfold_dataset
     
-    dataset_mtl = kfold_dataset_mtl#[0]
-    train_X_mtl = dataset_mtl[1].squeeze(1)[:,:,4:] 
-    train_y_mtl = dataset_mtl[2]
+    if args.interpolatedlinear:
+        train_x_mtl = dataset_mtl[1].squeeze(1)
+        test_x = dataset_mtl[5].squeeze(1)
+    elif args.interpolated:
+        train_x_mtl = dataset_mtl[2].squeeze(1)
+        test_x = dataset_mtl[5].squeeze(1)
+    else:
+        train_x_mtl = dataset_mtl[0].squeeze(1)
+        test_x = dataset_mtl[4].squeeze(1)
 
-    # train_X_mtl = np.concatenate([train_X_mtl[:,:,0:2],train_X_mtl[:,:,4:]], axis=-1)    
-     
-
-    # X_unlabeled_mtl = X_unlabeled_mtl.squeeze(1)[:,:,:-1] # 366
+    train_y_mtl = dataset_mtl[3]
+    test_y = dataset_mtl[7]
     
-    test_X_mtl = dataset_mtl[4].squeeze(1)[:,:,4:]
-    # test_X_mtl = np.concatenate([test_X_mtl[:,:,0:2],test_X_mtl[:,:,4:]], axis=-1)
-
-    test_Y_mtl = dataset_mtl[5]
-    # print('shape:', test_Y_mtl.shape)
-
-    # class_dict={}
-    # for y in train_y_mtl:
-    #     if y not in class_dict:
-    #         class_dict[y]=1
-    #     else:
-    #         class_dict[y]+=1
-    # print('Train Huawei class:', class_dict)
-    # print('Train MTL class:', class_dict)
-
-    # train_dataset, test_dataset = np.load(filename_mtl, allow_pickle=True)
-    # train_X_mtl = train_dataset[0] 
-    # train_y_mtl = train_dataset[1]
-    # test_X = test_dataset[0] 
-    # test_y = test_dataset[1]
-
-    # if args.use_unlabel:
-    #     raise NotImplemented
-    #     print('using unlabeled data')
-    #     train_data = np.concatenate([train_X_mtl],axis=0)
-    # else:
-    #     train_data = train_X_mtl
-    # train_data = np.concatenate([train_data, train_X_mtl], axis=0)
-        
-    # masked_train_X = mask_data(Train_X)
-    # masked_train_X_mtl = mask_data(train_X_mtl)
+    train_x_mtl = train_x_mtl[:,:,4:]
+    test_x = test_x[:,:,4:]
+    
+    pad_mask_target_train = train_x_mtl[:,:,0]==0
+    pad_mask_target_test = test_x[:,:,0]==0
+    train_x_mtl[pad_mask_target_train] = 0.
+    test_x[pad_mask_target_test] = 0.
+    
+    class_dict={}
+    for y in train_y_mtl:
+        if y not in class_dict:
+            class_dict[y]=1
+        else:
+            class_dict[y]+=1
+    print('MTL train:',dict(sorted(class_dict.items())))
+    class_dict={}
+    for y in test_y:
+        if y not in class_dict:
+            class_dict[y]=1
+        else:
+            class_dict[y]+=1
+    print('MTL test:',dict(sorted(class_dict.items())))
 
     print('Reading Data: (train: geolife + MTL, test: MTL)')
-    # print('Total shape: '+str(train_data.shape))
-    print('GeoLife shape: '+str(train_x_geolife.shape))
-    print('MTL shape: '+str(train_X_mtl.shape)+str(test_X_mtl.shape))
-    # print('Huawei shape: '+str(train_X_mtl.shape) + str(test_X_mtl.shape))
+    # logger.info('Total shape: '+str(train_data.shape))
+    print('GeoLife shape: '+str(train_x.shape))
+    print('MTL shape: '+str(train_x_mtl.shape))
     
-    n_geolife = train_x_geolife.shape[0]
-    n_mtl = train_X_mtl.shape[0]
-
-    # print('geolife:', n_geolife)
-
+    n_geolife = train_x.shape[0]
+    n_mtl = train_x_mtl.shape[0]
     train_dataset_geolife = TensorDataset(
-        torch.from_numpy(train_x_geolife).to(torch.float),
-        #masked_train_X.to(torch.float),
-        torch.from_numpy(train_y_geolife),
-        torch.from_numpy(np.array([0]*n_geolife))
+        torch.from_numpy(train_x).to(torch.float),
+        torch.from_numpy(train_y),
+        torch.from_numpy(np.array([0]*n_geolife)).float()
     )
     train_dataset_mtl = TensorDataset(
-        torch.from_numpy(train_X_mtl).to(torch.float),
-        #masked_train_X_mtl.to(torch.float),
-        torch.from_numpy(np.array([1]*n_mtl))
+        torch.from_numpy(train_x_mtl).to(torch.float),
+        torch.from_numpy(np.array([1]*n_mtl)).float(),
+        torch.from_numpy(np.arange(n_mtl))
     )
 
+    sampler = ImbalancedDatasetSampler(train_dataset_geolife, callback_get_label=get_label, num_samples=len(train_dataset_mtl))
+    train_loader_source = DataLoader(train_dataset_geolife, batch_size=min(args.batch_size, len(train_dataset_geolife)), sampler=sampler, shuffle=False, drop_last=True)
+    train_loader_target = DataLoader(train_dataset_mtl, batch_size=min(args.batch_size, len(train_dataset_mtl)), shuffle=True, drop_last=True)
+    train_source_iter = ForeverDataIterator(train_loader_source)
+    train_tgt_iter = ForeverDataIterator(train_loader_target)
+    train_loader = (train_source_iter, train_tgt_iter)
+    
     test_dataset = TensorDataset(
-        torch.from_numpy(test_X_mtl).to(torch.float),
-        torch.from_numpy(test_Y_mtl),
+        torch.from_numpy(test_x).to(torch.float),
+        torch.from_numpy(test_y),
     )
-    # concat_dataset= ConcatDataset(train_dataset_geolife,train_dataset_mtl)
-    # train_loader = DataLoader(concat_dataset, batch_size=min(args.batch_size, len(concat_dataset)), shuffle=True, drop_last=True)
-    # test_loader = DataLoader(test_dataset, batch_size=min(args.batch_size, len(test_dataset)))
-    # return train_loader, Train_X, Train_Y_ori, test_loader, Test_X, Test_Y_ori
-    return train_dataset_geolife, train_dataset_mtl, test_dataset
+    test_loader = DataLoader(test_dataset, batch_size=min(args.batch_size, len(test_dataset)))
 
-def get_dataset(dataset_name, root, source, target, train_source_transform, val_transform, train_target_transform=None):
-    if train_target_transform is None:
-        train_target_transform = train_source_transform
-    if dataset_name == "Digits":
-        train_source_dataset = datasets.__dict__[source[0]](osp.join(root, source[0]), download=True,
-                                                            transform=train_source_transform)
-        train_target_dataset = datasets.__dict__[target[0]](osp.join(root, target[0]), download=True,
-                                                            transform=train_target_transform)
-        val_dataset = test_dataset = datasets.__dict__[target[0]](osp.join(root, target[0]), split='test',
-                                                                  download=True, transform=val_transform)
-        class_names = datasets.MNIST.get_classes()
-        num_classes = len(class_names)
-    elif dataset_name in datasets.__dict__:
-        # load datasets from tllib.vision.datasets
-        dataset = datasets.__dict__[dataset_name]
+    return train_source_iter, train_tgt_iter, test_loader 
 
-        def concat_dataset(tasks, start_idx, **kwargs):
-            # return ConcatDataset([dataset(task=task, **kwargs) for task in tasks])
-            return MultipleDomainsDataset([dataset(task=task, **kwargs) for task in tasks], tasks,
-                                          domain_ids=list(range(start_idx, start_idx + len(tasks))))
 
-        train_source_dataset = concat_dataset(root=root, tasks=source, download=True, transform=train_source_transform,
-                                              start_idx=0)
-        train_target_dataset = concat_dataset(root=root, tasks=target, download=True, transform=train_target_transform,
-                                              start_idx=len(source))
-        val_dataset = concat_dataset(root=root, tasks=target, download=True, transform=val_transform,
-                                     start_idx=len(source))
-        if dataset_name == 'DomainNet':
-            test_dataset = concat_dataset(root=root, tasks=target, split='test', download=True, transform=val_transform,
-                                          start_idx=len(source))
-        else:
-            test_dataset = val_dataset
-        class_names = train_source_dataset.datasets[0].classes
-        num_classes = len(class_names)
+def load_data_multitgt(args):
+    # filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
+    filename = '/home/yichen/TS2Vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedNAN_5s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_doubletest_0218.pickle'
+
+    with open(filename, 'rb') as f:
+        kfold_dataset, X_unlabeled = pickle.load(f)
+    dataset = kfold_dataset
+    
+    if args.interpolatedlinear:
+        train_x = dataset[1].squeeze(1)
+    elif args.interpolated:
+        train_x = dataset[2].squeeze(1)
     else:
-        raise NotImplementedError(dataset_name)
-    return train_source_dataset, train_target_dataset, val_dataset, test_dataset, num_classes, class_names
+        train_x = dataset[0].squeeze(1)
+        
+    train_y = dataset[3]
+    train_x = train_x[:,:,4:]   
+    pad_mask_source = train_x[:,:,0]==0
+    train_x[pad_mask_source] = 0.
+        
+    class_dict={}
+    for y in train_y:
+        if y not in class_dict:
+            class_dict[y]=1
+        else:
+            class_dict[y]+=1
+    print('Geolife:',dict(sorted(class_dict.items())))
+    
+    
+    # filename_mtl = '/home/xieyuan/Transportation-mode/TS2Vec/datafiles/Huawei/traindata_4class_xy_traintest_interpolatedLinear_trip%d_new_001meters.pickle'%args.trip_time
+    # filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
+    filename_mtl = '/home/yichen/TS2Vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedNAN_5s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_doubletest_0226_sharedminmax_balanced.pickle'
+    
+    with open(filename_mtl, 'rb') as f:
+        kfold_dataset, X_unlabeled_mtl = pickle.load(f)
+    dataset_mtl = kfold_dataset
+    
+    if args.interpolatedlinear:
+        train_x_mtl = dataset_mtl[1].squeeze(1)
+        test_x = dataset_mtl[5].squeeze(1)
+    elif args.interpolated:
+        train_x_mtl = dataset_mtl[2].squeeze(1)
+        test_x = dataset_mtl[5].squeeze(1)
+    else:
+        train_x_mtl = dataset_mtl[0].squeeze(1)
+        test_x = dataset_mtl[4].squeeze(1)
+
+    train_y_mtl = dataset_mtl[3]
+    test_y = dataset_mtl[7]
+    
+    train_x_mtl = train_x_mtl[:,:,4:]
+    test_x = test_x[:,:,4:]
+    
+    pad_mask_target_train = train_x_mtl[:,:,0]==0
+    pad_mask_target_test = test_x[:,:,0]==0
+    train_x_mtl[pad_mask_target_train] = 0.
+    test_x[pad_mask_target_test] = 0.
+    
+    class_dict={}
+    for y in train_y_mtl:
+        if y not in class_dict:
+            class_dict[y]=1
+        else:
+            class_dict[y]+=1
+    print('MTL train:',dict(sorted(class_dict.items())))
+    class_dict={}
+    for y in test_y:
+        if y not in class_dict:
+            class_dict[y]=1
+        else:
+            class_dict[y]+=1
+    print('MTL test:',dict(sorted(class_dict.items())))
+
+    print('Reading Data: (train: geolife + MTL, test: MTL)')
+    # logger.info('Total shape: '+str(train_data.shape))
+    print('GeoLife shape: '+str(train_x.shape))
+    print('MTL shape: '+str(train_x_mtl.shape))
+    
+    n_geolife = train_x.shape[0]
+    n_mtl = train_x_mtl.shape[0]
+    train_dataset_geolife = TensorDataset(
+        torch.from_numpy(train_x).to(torch.float),
+        torch.from_numpy(train_y),
+        torch.from_numpy(np.array([0]*n_geolife)).float()
+    )
+    train_dataset_mtl = TensorDataset(
+        torch.from_numpy(train_x_mtl).to(torch.float),
+        torch.from_numpy(np.array([1]*n_mtl)).float(),
+        torch.from_numpy(np.arange(n_mtl))
+    )
+
+
+
+    sampler = ImbalancedDatasetSampler(train_dataset_geolife, callback_get_label=get_label, num_samples=len(train_dataset_mtl))
+    train_loader_source = DataLoader(train_dataset_geolife, batch_size=min(args.batch_size, len(train_dataset_geolife)), sampler=sampler, shuffle=False, drop_last=True)
+    train_loader_target = DataLoader(train_dataset_mtl, batch_size=min(args.batch_size, len(train_dataset_mtl)), shuffle=True, drop_last=True)
+    train_source_iter = ForeverDataIterator(train_loader_source)
+    train_tgt_iter = ForeverDataIterator(train_loader_target)
+    train_loader = (train_source_iter, train_tgt_iter)
+    
+    test_dataset = TensorDataset(
+        torch.from_numpy(test_x).to(torch.float),
+        torch.from_numpy(test_y),
+    )
+    test_loader = DataLoader(test_dataset, batch_size=min(args.batch_size, len(test_dataset)))
+
+    return train_source_iter, train_tgt_iter, test_loader 
 
 
 def validate(val_loader, model, args, device) -> float:
@@ -229,7 +333,7 @@ def validate(val_loader, model, args, device) -> float:
     top1 = AverageMeter('Acc@1', ':6.2f')
     
     # per class acc
-    label_dict = {"walk": 0, "bike": 1, "car": 2, "train": 3}
+    label_dict = {"walk": 0, "bike": 1, "car": 2, "bus": 3}
     idx_dict={}
     for k,v in label_dict.items():
         idx_dict[v]=k
@@ -256,7 +360,7 @@ def validate(val_loader, model, args, device) -> float:
             target = target.to(device)
 
             # compute output
-            output = model(images)
+            output,_,_,_,_ = model(images)
             loss = F.cross_entropy(output, target)
 
             # measure accuracy and record loss
@@ -291,79 +395,6 @@ def validate(val_loader, model, args, device) -> float:
     return top1.avg
 
 
-def get_train_transform(resizing='default', scale=(0.08, 1.0), ratio=(3. / 4., 4. / 3.), random_horizontal_flip=True,
-                        random_color_jitter=False, resize_size=224, norm_mean=(0.485, 0.456, 0.406),
-                        norm_std=(0.229, 0.224, 0.225), auto_augment=None):
-    """
-    resizing mode:
-        - default: resize the image to 256 and take a random resized crop of size 224;
-        - cen.crop: resize the image to 256 and take the center crop of size 224;
-        - res: resize the image to 224;
-    """
-    transformed_img_size = 224
-    if resizing == 'default':
-        transform = T.Compose([
-            ResizeImage(256),
-            T.RandomResizedCrop(224, scale=scale, ratio=ratio)
-        ])
-    elif resizing == 'cen.crop':
-        transform = T.Compose([
-            ResizeImage(256),
-            T.CenterCrop(224)
-        ])
-    elif resizing == 'ran.crop':
-        transform = T.Compose([
-            ResizeImage(256),
-            T.RandomCrop(224)
-        ])
-    elif resizing == 'res.':
-        transform = ResizeImage(resize_size)
-        transformed_img_size = resize_size
-    else:
-        raise NotImplementedError(resizing)
-    transforms = [transform]
-    if random_horizontal_flip:
-        transforms.append(T.RandomHorizontalFlip())
-    if auto_augment:
-        aa_params = dict(
-            translate_const=int(transformed_img_size * 0.45),
-            img_mean=tuple([min(255, round(255 * x)) for x in norm_mean]),
-            interpolation=Image.BILINEAR
-        )
-        if auto_augment.startswith('rand'):
-            transforms.append(rand_augment_transform(auto_augment, aa_params))
-        else:
-            transforms.append(auto_augment_transform(auto_augment, aa_params))
-    elif random_color_jitter:
-        transforms.append(T.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.5))
-    transforms.extend([
-        T.ToTensor(),
-        T.Normalize(mean=norm_mean, std=norm_std)
-    ])
-    return T.Compose(transforms)
-
-
-def get_val_transform(resizing='default', resize_size=224,
-                      norm_mean=(0.485, 0.456, 0.406), norm_std=(0.229, 0.224, 0.225)):
-    """
-    resizing mode:
-        - default: resize the image to 256 and take the center crop of size 224;
-        – res.: resize the image to 224
-    """
-    if resizing == 'default':
-        transform = T.Compose([
-            ResizeImage(256),
-            T.CenterCrop(224),
-        ])
-    elif resizing == 'res.':
-        transform = ResizeImage(resize_size)
-    else:
-        raise NotImplementedError(resizing)
-    return T.Compose([
-        transform,
-        T.ToTensor(),
-        T.Normalize(mean=norm_mean, std=norm_std)
-    ])
 
 
 def empirical_risk_minimization(train_source_iter, model, optimizer, lr_scheduler, epoch, args, device):
@@ -382,7 +413,8 @@ def empirical_risk_minimization(train_source_iter, model, optimizer, lr_schedule
 
     end = time.time()
     for i in range(args.iters_per_epoch):
-        x_s, labels_s = next(train_source_iter)[:2]
+        # x_s, labels_s = next(train_source_iter)[:2]
+        x_s,labels_s,_ = next(train_source_iter)
         x_s = x_s.to(device)
         labels_s = labels_s.to(device)
 
@@ -390,7 +422,7 @@ def empirical_risk_minimization(train_source_iter, model, optimizer, lr_schedule
         data_time.update(time.time() - end)
 
         # compute output
-        y_s, f_s = model(x_s)
+        y_s,_,_,_ = model(x_s)
 
         cls_loss = F.cross_entropy(y_s, labels_s)
         loss = cls_loss
@@ -404,7 +436,7 @@ def empirical_risk_minimization(train_source_iter, model, optimizer, lr_schedule
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        lr_scheduler.step()
+        # lr_scheduler.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
