@@ -4,9 +4,10 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import numpy as np
+import math
+from tllib.modules.grl import WarmStartGradientReverseLayer
 
-
-__all__ = ['TSEncoder']
+__all__ = ['TSEncoder','Classifier_clf']
 
 
 class GradientReversalFunction(torch.autograd.Function):
@@ -66,16 +67,23 @@ class Classifier_domain(nn.Module):
         x = self.fc3(x)
         return x
 
-class Classifier(nn.Module):
+class Classifier_clf(nn.Module):
     
-    def __init__(self, n_class, input_dim):
-        super(Classifier, self).__init__()
-        self.dropout = nn.Dropout(p=0.5)
-        self.fc = nn.Linear(input_dim, n_class)
+    def __init__(self, n_class=4, input_dim=64):
+        super(Classifier_clf, self).__init__()
+        # self.dropout = nn.Dropout(p=0.5)
+        # self.fc = nn.Linear(input_dim, n_class)
+        self.fc1 = nn.Linear(input_dim, 64)
+        self.fc2 = nn.Linear(64, n_class)
+        self.dropout_p=0.1
+        self.dropout = nn.Dropout(p=self.dropout_p)
 
     def forward(self, x): 
         #x = x.mean(3).mean(2)
-        x = self.fc(self.dropout(x))
+        # x = self.fc(self.dropout(x))
+        x = self.dropout(F.relu(self.fc1(x)))
+        feat = x
+        x = self.fc2(x)
         return x
 
 class SECAEncoder(nn.Module):
@@ -269,7 +277,7 @@ def generate_binomial_mask(B, T, p=0.5):
 
 
 class TSEncoder(nn.Module):
-    def __init__(self, input_dims=9, output_dims=64, hidden_dims=64, depth=10, n_class=4):
+    def __init__(self, input_dims=7, output_dims=64, hidden_dims=64, depth=10, n_class=4):
         super().__init__()
         self.input_dims = input_dims
         self.output_dims = output_dims
@@ -291,26 +299,59 @@ class TSEncoder(nn.Module):
         # )
         self.fc1 = nn.Linear(output_dims, 64)
         self.fc2 = nn.Linear(64, n_class)
-        self.dropout = nn.Dropout(p=0.1)
+        self.dropout_p=0.1
+        self.dropout = nn.Dropout(p=self.dropout_p)
+        self.bn = nn.BatchNorm1d(64)
         
+        self.grl_layer = WarmStartGradientReverseLayer(alpha=1.0, lo=0.0, hi=0.1, max_iters=1000, auto_step=False) 
+        self.adv_head = nn.Sequential(
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(64, n_class)
+        )
+    
+    def freeze_bn(self):
+        for m in self.modules():
+            if isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
+                m.eval()
         
-    def forward(self, x):  
+    def step(self):
+        """
+        Gradually increase :math:`\lambda` in GRL layer.
+        """
+        self.grl_layer.step()
+        
+    def forward(self, x, is_training=False):  
 
         x = self.input_fc(x)  # B x T x Ch
 
         # conv encoder
         x = x.transpose(1, 2)  # B x Ch x T
         x = self.feature_extractor(x)  # B x Co x T
-        ori_feat = x = x.transpose(1, 2)  # B x T x Co
+        ori_conv_feat = x = x.transpose(1, 2)  # B x T x Co
 
-        x = F.avg_pool1d(
+        conv_feat = x = F.avg_pool1d(
             x.transpose(1, 2),
             kernel_size = x.size(1),
         ).transpose(1, 2).squeeze(1)
-
-        feat = x = F.relu(self.fc1(x))
-        x = self.fc2(self.dropout(x))
-        # logits = self.fc(feat) 
-        # pred_each = self.fc(ori_feat)
         
-        return x, feat#, ori_feat
+
+        # x = self.dropout(F.relu(self.bn(self.fc1(x))))
+        x = self.dropout(F.relu(self.fc1(x)))
+        # if is_training:
+        #     x.mul_(math.sqrt(1 - self.dropout_p))
+        feat = x
+        
+        if self.grl_layer:
+            features_adv = self.grl_layer(feat)
+            outputs_adv = self.adv_head(features_adv)
+        
+        x = self.fc2(x)
+        # logits = self.fc(feat) 
+        # pred_each = self.fc(ori_feat)  
+        
+        if self.grl_layer:
+            return x, feat, conv_feat, ori_conv_feat, outputs_adv
+        else:
+            return x, feat, conv_feat, ori_conv_feat
