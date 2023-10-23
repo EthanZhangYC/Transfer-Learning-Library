@@ -157,10 +157,132 @@ python mcd.py \
 --interpolatedlinear \
 --trade-off 1 \
 --trade-off-entropy 0.1 \
---log logs/mcd
+--log logs/mcd_1015
+
+
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--log logs/mcd_vit
+
+
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd_neighbor_v2.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--log logs/mcd_neighbor
+
+
+CUDA_VISIBLE_DEVICES=8 \
+python mcd_neighbor_v3.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--log logs/1017_mcd_nofreeze_01_30m
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd_neighbor_v3.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--log logs/1017_mcd_freeze_01_10m_rmBC
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd_neighbor_v3.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--log logs/1017_mcd_freeze_01_30m_rmBC
+
+CUDA_VISIBLE_DEVICES=8 \
+python mcd_neighbor_v3.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0. \
+--log logs/1017_mcd_freeze_0_10m_rmBC
+
+CUDA_VISIBLE_DEVICES=8 \
+python mcd_neighbor_v3.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0. \
+--log logs/1017_mcd_freeze_0_30m_rmBC
+
+
+CUDA_VISIBLE_DEVICES=8 \
+python mcd_neighbor_v3.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--log logs/1017_mcd_freeze_01_30m_rmBC_nbrlimit10
+
+CUDA_VISIBLE_DEVICES=8 \
+python mcd_neighbor_v3.py \
+--epochs 100 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--log logs/1017_mcd_freeze_01_30m_rmBC_nbrlimit10_epoch100
 
 
 
 
-。。
-
+1016_mcd_freeze_01_10m

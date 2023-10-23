@@ -28,6 +28,9 @@ from tllib.utils.meter import AverageMeter, ProgressMeter
 from tllib.utils.logger import CompleteLogger
 from tllib.utils.analysis import collect_feature, tsne, a_distance
 
+import numpy as np
+import pdb
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -76,16 +79,16 @@ def main(args: argparse.Namespace):
 
     # train_source_iter = ForeverDataIterator(train_source_loader)
     # train_target_iter = ForeverDataIterator(train_target_loader)
-    train_source_iter, train_target_iter, val_loader = utils.load_data(args)
-    G = models.TSEncoder().to(device)
+    G = models.TSEncoder_new().to(device)
     classifier_features_dim=64
     num_classes = 4
     
-    # if args.ckpt_dir is not None:
-    # print('resuming model')
-    ckpt_dir='/home/yichen/TS2Vec/result/0402_pretrain/model_best.pth.tar'
-    ckpt = torch.load(ckpt_dir, map_location='cuda:0')
-    G.load_state_dict(ckpt['encoder_tgt_state_dict'], strict=False)
+    # # if args.ckpt_dir is not None:
+    # # print('resuming model')
+    # ckpt_dir='/home/yichen/TS2Vec/result/0402_pretrain/model_best.pth.tar'
+    # ckpt = torch.load(ckpt_dir, map_location='cuda:0')
+    # G.load_state_dict(ckpt['encoder_tgt_state_dict'], strict=False)
+
 
     # create model
     # print("=> using model '{}'".format(args.arch))
@@ -94,10 +97,30 @@ def main(args: argparse.Namespace):
     pool_layer = nn.Identity() if args.no_pool else None
     # F1 = ImageClassifierHead(G.out_features, num_classes, args.bottleneck_dim, pool_layer).to(device)
     # F2 = ImageClassifierHead(G.out_features, num_classes, args.bottleneck_dim, pool_layer).to(device)
-    F1 = models.Classifier_clf().to(device)
-    F2 = models.Classifier_clf().to(device)
+    F1_ori = models.Classifier_clf(input_dim=64).to(device)
+    F2_ori = models.Classifier_clf(input_dim=64).to(device)
+    F1 = models.Classifier_clf(input_dim=64*2).to(device)
+    # F2 = models.Classifier_clf(input_dim=64*2).to(device)
     # F1 = models.ViT(use_auxattn=True, double_attn=True).to(device)
     # F2 = models.ViT(use_auxattn=True, double_attn=True).to(device)
+    attn_net = models.AttnNet().to(device)
+    
+    
+    ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/mcd_1015/checkpoints/best.pth'
+    ckpt = torch.load(ckpt_dir, map_location='cuda:0')
+    G.load_state_dict(ckpt['G'], strict=False)
+    F1_ori.load_state_dict(ckpt['F1'])#, strict=False)
+    # F2_ori.load_state_dict(ckpt['F2'])#, strict=False)
+    
+    for param in G.parameters():
+        param.requires_grad = False 
+    
+    _,_,_,train_loader_target = utils.load_data(args)
+    pseudo_labels = get_pseudo_labels(train_loader_target, G, F1_ori, F2_ori, args)
+    del F1_ori#,F2_ori#,train_loader_target
+    train_source_iter, train_target_iter, val_loader = utils.load_data_neighbor_v2(args, pseudo_labels)
+
+    
 
     # define optimizer
     # the learning rate is fixed according to origin paper
@@ -109,7 +132,8 @@ def main(args: argparse.Namespace):
     optimizer_g = Adam(G.parameters(), args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
     optimizer_f = Adam([
         {"params": F1.parameters()},
-        {"params": F2.parameters()},
+        # {"params": F2.parameters()},
+        {"params": attn_net.parameters()},
     ], args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
 
     # resume from the best checkpoint
@@ -145,38 +169,38 @@ def main(args: argparse.Namespace):
     best_epoch = 0
     for epoch in range(args.epochs):
         # train for one epoch
-        train(train_source_iter, train_target_iter, G, F1, F2, optimizer_g, optimizer_f, epoch, args)
+        train(train_source_iter, train_target_iter, G, F1, attn_net, optimizer_g, optimizer_f, epoch, args)
 
         # evaluate on validation set
-        results = validate(val_loader, G, F1, F2, args)
+        results = validate(val_loader, G, F1, attn_net, args)
 
         # remember best acc@1 and save checkpoint
         torch.save({
             'G': G.state_dict(),
             'F1': F1.state_dict(),
-            'F2': F2.state_dict()
+            # 'F2': F2.state_dict(),
+            'attnnet':attn_net.state_dict()
         }, logger.get_checkpoint_path('latest'))
         if max(results) > best_acc1:
             shutil.copy(logger.get_checkpoint_path('latest'), logger.get_checkpoint_path('best'))
             best_acc1 = max(results)
             best_results = results
             best_epoch = epoch
-
-    print("best_acc1 = {:3.1f} ({}), results = {}".format(best_acc1, best_epoch, best_results))
+        print("best_acc1 = {:3.1f} ({}), results = {}".format(best_acc1, best_epoch, best_results))
 
     # evaluate on test set
     checkpoint = torch.load(logger.get_checkpoint_path('best'), map_location='cpu')
     G.load_state_dict(checkpoint['G'])
     F1.load_state_dict(checkpoint['F1'])
-    F2.load_state_dict(checkpoint['F2'])
+    # F2.load_state_dict(checkpoint['F2'])
     # results = validate(test_loader, G, F1, F2, args)
     # print("test_acc1 = {:3.1f}".format(max(results)))
 
     logger.close()
 
 
-def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator,
-          G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead,
+def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterator,
+          G: nn.Module, F1: ImageClassifierHead, attn_net: nn.Module,
           optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace):
     batch_time = AverageMeter('Time', ':3.1f')
     data_time = AverageMeter('Data', ':3.1f')
@@ -192,93 +216,140 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
     # switch to train mode
     G.train()
     F1.train()
-    F2.train()
+    # F2.train()
+    attn_net.train()
 
     end = time.time()
     for i in range(args.iters_per_epoch):
-        x_s, labels_s = next(train_source_iter)[:2]
-        x_t, = next(train_target_iter)[:1]
+        # if i>5:
+        #     break
+        
+        # x_s, labels_s = next(train_source_iter)[:2]
+        # x_t, = next(train_target_iter)[:1]
+        
+        # x_s = x_s.to(device)
+        # x_t = x_t.to(device)
+        # labels_s = labels_s.to(device)
+        # x = torch.cat((x_s, x_t), dim=0)
+        # assert x.requires_grad is False
+        
+        # # x_ori_src, labels_src, x_ori_src_neighbor, labels_neighbor, dist_src_neighbor, labels_domain_src = next(train_source_iter)
+        # # x_ori_tgt, x_ori_tgt_neighbor, dist_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_target_iter)
+        # x_ori_src, labels_src, x_ori_src_neighbor, masks_src_neighbor, labels_domain_src = next(train_src_iter)
+        # x_ori_tgt, x_ori_tgt_neighbor, masks_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_tgt_iter)
+        x_ori_src, labels_s, x_ori_src_neighbor, labels_domain_src = next(train_src_iter) 
+        x_ori_tgt, labels_t, x_ori_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_tgt_iter)
 
-        x_s = x_s.to(device)
-        x_t = x_t.to(device)
-        labels_s = labels_s.to(device)
-        x = torch.cat((x_s, x_t), dim=0)
-        assert x.requires_grad is False
+        x_ori_src, labels_s, labels_domain_src = torch.stack(x_ori_src), torch.stack(labels_s), torch.stack(labels_domain_src)
+        x_ori_tgt, labels_t, idx_tgt, labels_domain_tgt = torch.stack(x_ori_tgt), torch.stack(labels_t), torch.stack(idx_tgt), torch.stack(labels_domain_tgt)
+        x_ori_src, x_ori_tgt, labels_t = x_ori_src[:,:,2:], x_ori_tgt[:,:,2:], labels_t.to(device) # time, dist, v, a, jerk, bearing, is_real
+        x_ori_src, x_ori_tgt, labels_s, idx_tgt = x_ori_src.to(device), x_ori_tgt.to(device), labels_s.to(device), idx_tgt.to(device)
+        
+        neighbor_idx_src = [neighbor.shape[0] for neighbor in x_ori_src_neighbor]
+        neighbor_idx_src = np.insert(np.cumsum(neighbor_idx_src),0,0)
+        x_ori_src_neighbor = torch.cat(x_ori_src_neighbor)
+        
+        neighbor_idx_tgt = [neighbor.shape[0] for neighbor in x_ori_tgt_neighbor]
+        neighbor_idx_tgt = np.insert(np.cumsum(neighbor_idx_tgt),0,0)
+        x_ori_tgt_neighbor = torch.cat(x_ori_tgt_neighbor)
 
         # measure data loading time
         data_time.update(time.time() - end)
 
         # Step A train all networks to minimize loss on source domain
-        optimizer_g.zero_grad()
+        # optimizer_g.zero_grad()
         optimizer_f.zero_grad()
         
-        aux_feat_src = torch.stack([x_s[:,:,0],x_s[:,:,-1]], axis=2)
-        aux_feat_tgt = torch.stack([x_t[:,:,0],x_t[:,:,-1]], axis=2)
-        aux_feat = torch.cat((aux_feat_src, aux_feat_tgt), dim=0)
+        # aux_feat_src = torch.stack([x_s[:,:,0],x_s[:,:,-1]], axis=2)
+        # aux_feat_tgt = torch.stack([x_t[:,:,0],x_t[:,:,-1]], axis=2)
+        # aux_feat = torch.cat((aux_feat_src, aux_feat_tgt), dim=0)
 
-        _,_,g,_ = G(x)
-        # _,_,_,g = G(x)
+        bs=x_ori_src.shape[0]
+        x = torch.cat((x_ori_src, x_ori_tgt), dim=0)
+        # _,_,g,_ = G(x)
+        _,g,_,_,_,_,_ = G(x)
+        g_s,g_t = g[:bs],g[bs:]
+        
+
+        with torch.no_grad():
+            n_iter = x_ori_src_neighbor.shape[0]//bs
+            tmp_list=[]
+            for iter in range(n_iter):
+                neighbor = x_ori_src_neighbor[iter*bs:(iter+1)*bs,:,2:].to(device)
+                # mask = masks_src_neighbor[iter*bs:(iter+1)*bs].unsqueeze(2).to(device)
+                # neighbor = neighbor * mask
+                _,feat_src_avgpool_neighbor,_,_,_,_,_ = G(neighbor)
+                tmp_list.append(feat_src_avgpool_neighbor.cpu())
+            if x_ori_src_neighbor.shape[0]%bs!=0:
+                neighbor = x_ori_src_neighbor[n_iter*bs:,:,2:].to(device)
+                # mask = masks_src_neighbor[n_iter*bs:].unsqueeze(2).to(device)
+                # neighbor = neighbor * mask
+                _,feat_src_avgpool_neighbor,_,_,_,_,_ = G(neighbor)
+                tmp_list.append(feat_src_avgpool_neighbor.cpu())
+            feat_src_avgpool_neighbor = torch.cat(tmp_list,dim=0)
+            
+            feat_src_avgpool_neighbor_list=[]
+            for neighbor_idx,_ in enumerate(neighbor_idx_src):
+                if neighbor_idx==neighbor_idx_src.shape[0]-1:
+                    break
+                tmp_neighbor = feat_src_avgpool_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
+                tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
+                feat_src_avgpool_neighbor_list.append(tmp_neighbor)
+            feat_src_avgpool_neighbors = torch.stack(feat_src_avgpool_neighbor_list)
+                       
+                              
+            n_iter = x_ori_tgt_neighbor.shape[0]//bs
+            tmp_list=[]
+            for iter in range(n_iter):
+                neighbor = x_ori_tgt_neighbor[iter*bs:(iter+1)*bs,:,2:].to(device)
+                # mask = masks_tgt_neighbor[iter*bs:(iter+1)*bs].unsqueeze(2).to(device)
+                # neighbor = neighbor * mask
+                _,feat_tgt_avgpool_neighbor,_,_,_,_,_ = G(neighbor)
+                tmp_list.append(feat_tgt_avgpool_neighbor.cpu())
+            if x_ori_tgt_neighbor.shape[0]%bs!=0:
+                neighbor = x_ori_tgt_neighbor[n_iter*bs:,:,2:].to(device)
+                # mask = masks_tgt_neighbor[n_iter*bs:].unsqueeze(2).to(device)
+                # neighbor = neighbor * mask
+                _,feat_tgt_avgpool_neighbor,_,_,_,_,_ = G(neighbor)
+                tmp_list.append(feat_tgt_avgpool_neighbor.cpu())
+            feat_tgt_avgpool_neighbor = torch.cat(tmp_list,dim=0)
+            
+            feat_tgt_avgpool_neighbor_list=[]
+            for neighbor_idx,_ in enumerate(neighbor_idx_tgt):
+                if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
+                    break
+                tmp_neighbor = feat_tgt_avgpool_neighbor[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]]
+                tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
+                feat_tgt_avgpool_neighbor_list.append(tmp_neighbor)
+            feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list)
+        
+        
+        g_s = torch.cat([g_s,feat_src_avgpool_neighbors],dim=1)
+        g_t = torch.cat([g_t,feat_tgt_avgpool_neighbors],dim=1)
+        g = torch.cat((g_s, g_t), dim=0)
+        aux_feat=None
+
         y_1 = F1(g, aux_feat)
-        y_2 = F2(g, aux_feat)
+        # y_2 = F2(g, aux_feat)
         y1_s, y1_t = y_1.chunk(2, dim=0)
-        y2_s, y2_t = y_2.chunk(2, dim=0)
+        # y2_s, y2_t = y_2.chunk(2, dim=0)
+        # y1_t, y2_t = F.softmax(y1_t, dim=1), F.softmax(y2_t, dim=1)
+        y1_t = F.softmax(y1_t, dim=1)
 
-        y1_t, y2_t = F.softmax(y1_t, dim=1), F.softmax(y2_t, dim=1)
-        # import pdb
-        # pdb.set_trace()
-        loss = F.cross_entropy(y1_s, labels_s) + F.cross_entropy(y2_s, labels_s) + \
-               (entropy(y1_t) + entropy(y2_t)) * args.trade_off_entropy
+        loss = F.cross_entropy(y1_s, labels_s) + entropy(y1_t) * args.trade_off_entropy + F.cross_entropy(y1_t, labels_t) 
+        # loss = F.cross_entropy(y1_s, labels_s) + F.cross_entropy(y2_s, labels_s) + F.cross_entropy(y1_t, labels_t) + F.cross_entropy(y2_t, labels_t)
         loss.backward()
-        optimizer_g.step()
+        # optimizer_g.step()
         optimizer_f.step()
-
-        # Step B train classifier to maximize discrepancy
-        optimizer_g.zero_grad()
-        optimizer_f.zero_grad()
-
-        _,_,g,_ = G(x)
-        # _,_,_,g = G(x)
-        y_1 = F1(g, aux_feat)
-        y_2 = F2(g, aux_feat)
-        y1_s, y1_t = y_1.chunk(2, dim=0)
-        y2_s, y2_t = y_2.chunk(2, dim=0)
-        y1_t, y2_t = F.softmax(y1_t, dim=1), F.softmax(y2_t, dim=1)
-        loss = F.cross_entropy(y1_s, labels_s) + F.cross_entropy(y2_s, labels_s) + \
-               (entropy(y1_t) + entropy(y2_t)) * args.trade_off_entropy - \
-               classifier_discrepancy(y1_t, y2_t) * args.trade_off
-        loss.backward()
-        optimizer_f.step()
-
-        # Step C train genrator to minimize discrepancy
-        for k in range(args.num_k):
-            optimizer_g.zero_grad()
-            _,_,g,_ = G(x)
-            # _,_,_,g = G(x)
-            y_1 = F1(g, aux_feat)
-            y_2 = F2(g, aux_feat)
-            y1_s, y1_t = y_1.chunk(2, dim=0)
-            y2_s, y2_t = y_2.chunk(2, dim=0)
-            y1_t, y2_t = F.softmax(y1_t, dim=1), F.softmax(y2_t, dim=1)
-            mcd_loss = classifier_discrepancy(y1_t, y2_t) * args.trade_off
-            mcd_loss.backward()
-            optimizer_g.step()
-
-        cls_acc = accuracy(y1_s, labels_s)[0]
-
-        losses.update(loss.item(), x_s.size(0))
-        cls_accs.update(cls_acc.item(), x_s.size(0))
-        trans_losses.update(mcd_loss.item(), x_s.size(0))
-
-        # measure elapsed time
+        
+        losses.update(loss.item(), bs)
         batch_time.update(time.time() - end)
         end = time.time()
-
         if i % args.print_freq == 0:
             progress.display(i)
 
 
-def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead,
-             F2: ImageClassifierHead, args: argparse.Namespace) -> Tuple[float, float]:
+def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace) -> Tuple[float, float]:
     batch_time = AverageMeter('Time', ':6.3f')
     top1_1 = AverageMeter('Acc_1', ':6.2f')
     top1_2 = AverageMeter('Acc_2', ':6.2f')
@@ -290,7 +361,8 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead,
     # switch to evaluate mode
     G.eval()
     F1.eval()
-    F2.eval()
+    # F2.eval()
+    attn_net.eval()
 
     if args.per_class_eval:
         confmat = ConfusionMatrix(len(args.class_names))
@@ -309,31 +381,108 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead,
     with torch.no_grad():
         end = time.time()
         for i, data in enumerate(val_loader):
-            images, target = data[:2]
-            images = images.to(device)
-            target = target.to(device)
+            # if i>5:
+            #     break
+            
+            # images, target = data[:2]
+            # images = images.to(device)
+            # target = target.to(device)
+            
+            # x, labels, neighbors, dist_neighbors = data
+            # x, labels, neighbors, masks = data
+            x, labels, neighbors = data
+            x, labels = torch.stack(x), torch.stack(labels)
+            x, labels = x.to(device), labels.to(device)
+            bs = x.shape[0]
+            x = x[:,:,2:]
+            
+            neighbor_idx_src = [neighbor.shape[0] for neighbor in neighbors]
+            neighbor_idx_src = np.insert(np.cumsum(neighbor_idx_src),0,0)
+            neighbors = torch.cat(neighbors)
 
             # compute output
-            _,_,g,_ = G(images)
-            # _,_,_,g = G(images)
-            aux_feat = torch.stack([images[:,:,0],images[:,:,-1]], axis=2)
-            y1, y2 = F1(g, aux_feat), F2(g, aux_feat)
+            # _,_,g,_ = G(x)
+            _,g,_,_,_,_,_ = G(x)
+            # aux_feat = torch.stack([images[:,:,0],images[:,:,-1]], axis=2)
+
+            # # feat_neighbor_list=[]
+            # # for neighbor,dist in zip(neighbors, dist_neighbors):
+            # #     neighbor = neighbor[:,:,2:].to(device)
+            # #     dist = dist.to(device)
+            # #     # dist = F.softmax(torch.pow(dist, 1/args.dist_root))
+            # #     _,_,feat_neighbor,_ = G(neighbor)
+            # #     if neighbor.shape[0]==1:
+            # #         feat_neighbor = feat_neighbor.squeeze(0)
+            # #     else:
+            # #         attn = attn_net(dist.unsqueeze(2).transpose(0, 1))
+            # #         attn = F.softmax(attn[-1], dim=0)
+            # #         feat_neighbor = torch.sum(attn * feat_neighbor, dim=0)
+            # #     feat_neighbor_list.append(feat_neighbor)
+            # # feat_neighbor = torch.stack(feat_neighbor_list)
+            # feat_neighbor_list=[]
+            # for neighbor,mask in zip(neighbors, masks):
+            #     neighbor = neighbor[:,:,2:].to(device)
+            #     mask = mask.unsqueeze(2).to(device)
+            #     neighbor = neighbor * mask
+                                            
+            #     n_iter = neighbor.shape[0]//bs
+            #     tmp_list=[]
+            #     for iter in range(n_iter):
+            #         _,feat_neighbor,_,_,_,_,_ = G(neighbor[iter*bs:(iter+1)*bs])
+            #         tmp_list.append(feat_neighbor)
+            #     if neighbor.shape[0]%bs!=0:
+            #         _,feat_neighbor,_,_,_,_,_ = G(neighbor[n_iter*bs:])
+            #         tmp_list.append(feat_neighbor)
+
+            #     feat_neighbor = torch.cat(tmp_list,dim=0)
+            #     feat_neighbor = torch.mean(feat_neighbor, dim=0)
+            #     feat_neighbor_list.append(feat_neighbor)
+            #     del tmp_list
+            # feat_neighbor = torch.stack(feat_neighbor_list)
+            n_iter = neighbors.shape[0]//bs
+            tmp_list=[]
+            for iter in range(n_iter):
+                neighbor = neighbors[iter*bs:(iter+1)*bs,:,2:].to(device)
+                _,feat_neighbor,_,_,_,_,_ = G(neighbor)
+                tmp_list.append(feat_neighbor.cpu())
+            if neighbors.shape[0]%bs!=0:
+                neighbor = neighbors[n_iter*bs:,:,2:].to(device)
+                _,feat_neighbor,_,_,_,_,_ = G(neighbor)
+                tmp_list.append(feat_neighbor.cpu())
+            feat_neighbor = torch.cat(tmp_list,dim=0)
+            
+            feat_neighbor_list=[]
+            for neighbor_idx,_ in enumerate(neighbor_idx_src):
+                if neighbor_idx==neighbor_idx_src.shape[0]-1:
+                    break
+                tmp_neighbor = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
+                tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
+                feat_neighbor_list.append(tmp_neighbor)
+            feat_neighbors = torch.stack(feat_neighbor_list) 
+            
+
+            g = torch.cat([g,feat_neighbors],dim=1)
+            aux_feat = None
+
+            
+            y1 = F1(g, aux_feat)
+            # y1, y2 = F1(g, aux_feat), F2(g, aux_feat)
 
             # measure accuracy and record loss
-            acc1, = accuracy(y1, target)
-            acc2, = accuracy(y2, target)
+            acc1, = accuracy(y1, labels)
+            # acc2, = accuracy(y2, labels)
             if confmat:
-                confmat.update(target, y1.argmax(1))
-            top1_1.update(acc1.item(), images.size(0))
-            top1_2.update(acc2.item(), images.size(0))
+                confmat.update(labels, y1.argmax(1))
+            top1_1.update(acc1.item(), bs)
+            # top1_2.update(acc2.item(), bs)
             
             
             _, preds1 = torch.max(y1, 1)
-            _, preds2 = torch.max(y2, 1)
-            for t, p in zip(target.view(-1), preds1.view(-1)):
+            # _, preds2 = torch.max(y2, 1)
+            for t, p in zip(labels.view(-1), preds1.view(-1)):
                 confusion_matrix1[t.long(), p.long()] += 1
-            for t, p in zip(target.view(-1), preds2.view(-1)):
-                confusion_matrix2[t.long(), p.long()] += 1
+            # for t, p in zip(labels.view(-1), preds2.view(-1)):
+            #     confusion_matrix2[t.long(), p.long()] += 1
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -342,23 +491,41 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead,
             if i % args.print_freq == 0:
                 progress.display(i)
         
-        if top1_1.avg > top1_2.avg:
-            confusion_matrix = confusion_matrix1
-        else:
-            confusion_matrix = confusion_matrix2
+        # if top1_1.avg > top1_2.avg:
+        confusion_matrix = confusion_matrix1
+        # else:
+        #     confusion_matrix = confusion_matrix2
         print(str(confusion_matrix))
         per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
         print('per class accuracy:')
         for idx,acc in enumerate(per_class_acc):
             print('\t '+str(idx_dict[idx])+': '+str(acc))
 
-
         print(' * Acc1 {top1_1.avg:.3f} Acc2 {top1_2.avg:.3f}'
               .format(top1_1=top1_1, top1_2=top1_2))
         if confmat:
             print(confmat.format(args.class_names))
 
-    return top1_1.avg, top1_2.avg
+    return top1_1.avg#, top1_2.avg
+
+
+
+def get_pseudo_labels(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, args: argparse.Namespace):
+    G.eval()
+    F1.eval()
+    F2.eval()
+
+    y_list=[]
+    with torch.no_grad():
+        for i, data in enumerate(val_loader):
+            images = data[0]
+            images = images.to(device)
+            _,g,_,_,_,_,_ = G(images)
+            y2 = F2(g, None)
+            y2 = torch.argmax(y2,dim=1).tolist()
+            y_list+=y2
+            
+    return y_list
 
 
 if __name__ == '__main__':

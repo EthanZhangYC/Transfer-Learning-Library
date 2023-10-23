@@ -7,7 +7,10 @@ import numpy as np
 import math
 from tllib.modules.grl import WarmStartGradientReverseLayer
 
-__all__ = ['TSEncoder','Classifier_clf']
+from einops import rearrange, repeat, pack, unpack
+from einops.layers.torch import Rearrange
+
+__all__ = ['TSEncoder','Classifier_clf','ViT','AttnNet','TSEncoder_new']
 
 
 class GradientReversalFunction(torch.autograd.Function):
@@ -78,7 +81,7 @@ class Classifier_clf(nn.Module):
         self.dropout_p=0.1
         self.dropout = nn.Dropout(p=self.dropout_p)
 
-    def forward(self, x): 
+    def forward(self, x, aux_feat=None): 
         #x = x.mean(3).mean(2)
         # x = self.fc(self.dropout(x))
         x = self.dropout(F.relu(self.fc1(x)))
@@ -205,7 +208,16 @@ class DilatedConvEncoder(nn.Module):
         return self.net(x)
         
 
-
+class AttnNet(nn.Module):
+    def __init__(self, n_class=1, embed_dim=4, num_layers=2):
+        super(AttnNet, self).__init__()
+        self.fc = nn.Linear(embed_dim, n_class)
+        self.lstm = nn.LSTM(input_size=1, hidden_size=embed_dim, num_layers=num_layers)
+        
+    def forward(self, x): 
+        _,(_,x) = self.lstm(x)
+        x = self.fc(x)
+        return x
 
 
 
@@ -303,7 +315,8 @@ class TSEncoder(nn.Module):
         self.dropout = nn.Dropout(p=self.dropout_p)
         self.bn = nn.BatchNorm1d(64)
         
-        self.grl_layer = WarmStartGradientReverseLayer(alpha=1.0, lo=0.0, hi=0.1, max_iters=1000, auto_step=False) 
+        # self.grl_layer = WarmStartGradientReverseLayer(alpha=1.0, lo=0.0, hi=0.1, max_iters=1000, auto_step=False) 
+        self.grl_layer=None
         self.adv_head = nn.Sequential(
             nn.Linear(64, 64),
             nn.ReLU(),
@@ -343,7 +356,7 @@ class TSEncoder(nn.Module):
         #     x.mul_(math.sqrt(1 - self.dropout_p))
         feat = x
         
-        if self.grl_layer:
+        if self.grl_layer is not None:
             features_adv = self.grl_layer(feat)
             outputs_adv = self.adv_head(features_adv)
         
@@ -355,3 +368,289 @@ class TSEncoder(nn.Module):
             return x, feat, conv_feat, ori_conv_feat, outputs_adv
         else:
             return x, feat, conv_feat, ori_conv_feat
+
+
+
+class TSEncoder_new(nn.Module):
+    def __init__(self, input_dims=7, output_dims=64, hidden_dims=64, depth=10, mask_mode='binomial', n_class=4, reconstruct_dim=2):
+        super().__init__()
+        self.input_dims = input_dims
+        self.output_dims = output_dims
+        self.hidden_dims = hidden_dims
+        self.mask_mode = mask_mode
+        
+        self.input_fc = nn.Linear(input_dims, hidden_dims)
+        self.feature_extractor = DilatedConvEncoder(
+            hidden_dims,
+            [hidden_dims] * depth + [output_dims],
+            kernel_size=3
+        )
+        self.repr_dropout = nn.Dropout(p=0.1)
+        self.fc = nn.Sequential(
+            nn.Linear(output_dims, 64),
+            nn.ReLU(),
+            nn.Dropout(p=0.1),
+            nn.Linear(64, n_class)
+        )
+                    
+        self.fc_con = nn.Sequential(
+            nn.Linear(output_dims, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256)
+        )
+        self.fc_va = nn.Sequential(
+            nn.Linear(output_dims, 64),
+            nn.ReLU(),
+            nn.Linear(64, reconstruct_dim)
+        )
+        
+    def forward(self, x, mask_for_ts2loss=False, mask=None, is_pred_va=False, sameva=False, exchange=False):  
+        nan_mask = ~x.isnan().any(axis=-1)
+
+        x = self.input_fc(x)  # B x T x Ch
+
+        if mask_for_ts2loss:
+            # generate & apply mask
+            if mask is None:
+                if self.training:
+                    mask = self.mask_mode
+                else:
+                    mask = 'all_true'
+            
+            if mask == 'binomial':
+                mask = generate_binomial_mask(x.size(0), x.size(1)).to(x.device)
+            elif mask == 'continuous':
+                mask = generate_continuous_mask(x.size(0), x.size(1)).to(x.device)
+            elif mask == 'all_true':
+                mask = x.new_full((x.size(0), x.size(1)), True, dtype=torch.bool)
+            elif mask == 'all_false':
+                mask = x.new_full((x.size(0), x.size(1)), False, dtype=torch.bool)
+            elif mask == 'mask_last':
+                mask = x.new_full((x.size(0), x.size(1)), True, dtype=torch.bool)
+                mask[:, -1] = False
+            
+            ori_mask = mask.detach()
+            mask &= nan_mask
+            # x[~mask] = 0
+            x[~mask] = -1 # masked->False
+
+        else:
+            ori_mask=None
+
+        # conv encoder
+        x = x.transpose(1, 2)  # B x Ch x T
+        x = self.feature_extractor(x)  # B x Co x T
+        ori_feat = x = x.transpose(1, 2)  # B x T x Co
+
+        feat = x = F.avg_pool1d(
+            x.transpose(1, 2),
+            kernel_size = x.size(1),
+        ).transpose(1, 2).squeeze(1)
+
+        logits = self.fc(feat) 
+        pred_each = self.fc(ori_feat)
+        
+        con_logits = None
+        va_logits = self.fc_va(ori_feat)
+
+        return logits, feat, ori_feat, con_logits, va_logits, ori_mask, pred_each
+
+
+
+
+
+
+class PreNorm(nn.Module):
+    def __init__(self, dim, fn, use_auxattn=False):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim)
+        self.fn = fn
+        self.use_auxattn =use_auxattn
+    def forward(self, x, attn_feat, use_cls_tokens=True, **kwargs):
+        if self.use_auxattn:
+            return self.fn(x, self.norm(attn_feat), use_cls_tokens, **kwargs)
+        else:
+            return self.fn(self.norm(x), attn_feat, use_cls_tokens, **kwargs)
+
+class FeedForward(nn.Module):
+    def __init__(self, dim, hidden_dim, dropout = 0.):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            # nn.Linear(hidden_dim, dim),
+            # nn.Dropout(dropout)
+        )
+    def forward(self, x, attn_feat=None, use_cls_tokens=True):
+        return self.net(x)
+
+class Attention(nn.Module):
+    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0., use_auxattn=False, double_attn=False):
+        super().__init__()
+        inner_dim = dim_head * heads 
+        project_out = (not (heads == 1 and dim_head == dim)) or double_attn
+        # project_out = True
+
+        self.heads = heads
+        self.scale = dim_head ** -0.5
+        self.use_auxattn = use_auxattn
+        self.double_attn = double_attn
+
+        self.attend = nn.Softmax(dim = -1)
+        self.dropout = nn.Dropout(dropout)
+        
+        # if use_auxattn:
+        #     self.to_qkv = nn.Linear(2, inner_dim * 3, bias = False)
+        # else:
+        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias = False)
+        self.to_qkv_aux = nn.Linear(dim, inner_dim * 3, bias = False)
+
+        # self.to_out = nn.Sequential(
+        #     nn.Linear(inner_dim, dim),
+        #     nn.Dropout(dropout)
+        # ) if project_out else nn.Identity()
+        1
+
+    def forward(self, x, attn_feat, use_cls_tokens):
+        # qkv = self.to_qkv(x).chunk(3, dim = -1)
+        # q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
+        if self.use_auxattn:
+            if self.double_attn:
+                qkv_aux = self.to_qkv_aux(attn_feat).chunk(3, dim = -1)
+                q_aux, k_aux, v_aux = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv_aux)
+                v = x.unsqueeze(1)
+                
+                qkv_self = self.to_qkv(x).chunk(3, dim = -1)
+                q_self, k_self, v_self = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv_self)
+                
+                # q = torch.cat([q_aux,q_self],dim=1)
+                # k = torch.cat([k_aux,k_self],dim=1)
+                # v = torch.cat([v_aux,v_self],dim=1)
+                
+                dots_aux = torch.matmul(q_aux, k_aux.transpose(-1, -2)) * self.scale
+                dots_self = torch.matmul(q_self, k_self.transpose(-1, -2)) * self.scale
+                # attn_aux = self.attend(dots_aux)
+                # attn_self = self.attend(dots_self)
+                # attn = self.attend(attn_aux * attn_self)
+                attn = self.attend(dots_aux * dots_self)
+                
+                # pdb.set_trace()
+                # attn = F.normalize(attn_aux * attn_self, dim=1)
+                attn = self.dropout(attn)
+                
+            else:
+                qkv_aux = self.to_qkv_aux(attn_feat).chunk(3, dim = -1)
+                q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv_aux)
+                v = x.unsqueeze(1)
+                
+                dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
+                attn = self.attend(dots)
+                attn = self.dropout(attn)
+                        
+        else:
+            qkv = self.to_qkv(x).chunk(3, dim = -1)
+            q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), qkv)
+
+            dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
+            attn = self.attend(dots)
+            attn = self.dropout(attn)
+
+        out = torch.matmul(attn, v)
+        out = rearrange(out, 'b h n d -> b n (h d)')
+        
+        # feat = torch.sum(out,dim=1)
+        
+        # if use_cls_tokens:
+        #     output = self.to_out(out)
+        # else:
+        #     output = self.to_out(feat)
+        attn = rearrange(attn, 'b h n d -> b n (h d)')
+        return out, out[:,0], attn[:,0]
+
+class Transformer(nn.Module):
+    def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0., use_auxattn=False, use_cls_tokens=True, double_attn=False):
+        super().__init__()
+        self.layers = nn.ModuleList([])
+        self.use_cls_tokens=use_cls_tokens
+
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout, use_auxattn=use_auxattn, double_attn=double_attn), use_auxattn=use_auxattn),
+                # PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout))
+                FeedForward(dim, mlp_dim, dropout = dropout)
+            ]))
+    def forward(self, x, attn_feat):
+        for attn, ff in self.layers:
+            x,feat,attn = attn(x, attn_feat, self.use_cls_tokens)
+            # x = out + x
+            # x = attn(x) + x
+            x = ff(x, attn_feat) #+ x
+        return x, feat, attn
+
+class ViT(nn.Module):
+    def __init__(self, *, seq_len=650, patch_size=1, num_classes=4, dim=64, depth=1, heads=1, mlp_dim=64, channels = 3, dim_head = 64, dropout = 0., emb_dropout = 0., use_cls_tokens=True, use_auxattn=False, double_attn=False, n_aux=2):
+        super().__init__()
+        assert (seq_len % patch_size) == 0
+
+        num_patches = seq_len // patch_size
+        patch_dim = channels * patch_size
+        self.use_cls_tokens = use_cls_tokens
+        self.double_attn = double_attn
+        self.use_auxattn = use_auxattn
+
+        self.to_patch_embedding = nn.Sequential(
+            Rearrange('b c (n p) -> b n (p c)', p = patch_size),
+            nn.Linear(patch_dim, dim),
+        )
+        self.to_patch_embedding_auxfeat = nn.Sequential(
+            Rearrange('b c (n p) -> b n (p c)', p = patch_size),
+            nn.Linear(n_aux * patch_size, dim),
+        )
+
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches + 1, dim))
+        self.cls_token = nn.Parameter(torch.randn(dim))
+        self.cls_token_aux = nn.Parameter(torch.randn(dim))
+        self.dropout = nn.Dropout(emb_dropout)
+
+        self.transformer = Transformer(dim, depth, heads, dim_head, mlp_dim, dropout, use_auxattn=self.use_auxattn, use_cls_tokens=self.use_cls_tokens, double_attn=self.double_attn)
+
+        # if args.double_attn:
+        #     dim=dim*2
+        #     con_dim=con_dim*2
+            
+        self.mlp_head = nn.Sequential(
+            # nn.LayerNorm(dim),
+            nn.Linear(dim, num_classes)
+        )
+
+
+    def forward(self, series, attn_feat=None):
+        # x = self.to_patch_embedding(series.transpose(1, 2))
+        x = series
+        b, n, _ = x.shape
+        
+        attn_feat = self.to_patch_embedding_auxfeat(attn_feat.transpose(1, 2))
+        
+        if self.use_cls_tokens:
+            cls_tokens = repeat(self.cls_token, 'd -> b d', b = b)
+            cls_tokens_aux = repeat(self.cls_token_aux, 'd -> b d', b = b)
+            x, ps = pack([cls_tokens, x], 'b * d')
+            attn_feat, _ = pack([cls_tokens_aux, attn_feat], 'b * d')
+            x += self.pos_embedding[:, :(n + 1)]
+        else:
+            x += self.pos_embedding[:, :n]
+        x = self.dropout(x)
+
+        x, feat, attn = self.transformer(x, attn_feat)
+
+        if self.use_cls_tokens:
+            cls_tokens, _ = unpack(x, ps, 'b * d')
+            pred = self.mlp_head(cls_tokens)
+        else:
+            # x = torch.sum(x,dim=1)
+            pred = self.mlp_head(x)
+        
+        # feat_con = self.fc_con(feat)
+
+        return pred#, feat, feat_con, attn, cls_tokens
