@@ -535,8 +535,8 @@ def load_data_neighbor(args):
 
 
 
-THRES=30
-N_NEIGHBOR_LIMIT=10
+# THRES=30
+# N_NEIGHBOR_LIMIT=10
 
 def change_to_new_channel_v3(inputs, max_threshold, label=None): 
     total_input_new = np.zeros((max_threshold, 9))
@@ -580,7 +580,7 @@ def change_to_new_channel_v4(inputs, max_threshold, low_anchor, high_anchor):
     return total_input_new
 
 class create_single_dataset_idx(torch.utils.data.Dataset):
-    def __init__(self, imgs, labels, neighbors_idx, total_trips, pos_trips, part='train', transform=None, dataset=''):
+    def __init__(self, imgs, labels, neighbors_idx, total_trips, pos_trips, part='train', transform=None, dataset='', label_mask=None, nbr_limit=10):
         super(create_single_dataset_idx, self).__init__()
         
         self.imgs = imgs.astype(np.float32)
@@ -589,6 +589,8 @@ class create_single_dataset_idx(torch.utils.data.Dataset):
         self.total_trips = total_trips
         self.pos_trips = pos_trips
         # self.neighbor_labels = neighbor_labels
+        self.label_mask = label_mask
+        self.nbr_limit=nbr_limit
         
         self.dataset=dataset
         self.part=part
@@ -611,10 +613,9 @@ class create_single_dataset_idx(torch.utils.data.Dataset):
         
         # nbr_idxes = self.neighbors_idx[index]
         nbr_idxes = self.neighbors_idx[index]
-        # print(len(nbr_idxes))
-        if len(nbr_idxes)>N_NEIGHBOR_LIMIT:
+        if len(nbr_idxes)>self.nbr_limit:
             each_len = nbr_idxes[:,2]-nbr_idxes[:,1]
-            selected_idx = np.argpartition(-each_len, N_NEIGHBOR_LIMIT)[:N_NEIGHBOR_LIMIT]
+            selected_idx = np.argpartition(-each_len, self.nbr_limit)[:self.nbr_limit]
             nbr_idxes = np.take(nbr_idxes,selected_idx,axis=0)
         
         nbrs_list = []
@@ -672,8 +673,9 @@ class create_single_dataset_idx(torch.utils.data.Dataset):
             # return img, label, neighbors, mask_list, torch.as_tensor(0)
         else:
             label = torch.as_tensor(self.labels[index])
+            label_mask = torch.as_tensor(self.label_mask[index])
             # return img, neighbors, distances, torch.as_tensor(1), torch.as_tensor(index)
-            return img, label, neighbors, torch.as_tensor(1), torch.as_tensor(index)
+            return img, label, label_mask, neighbors, torch.as_tensor(1), torch.as_tensor(index)
             # return img, neighbors, mask_list, torch.as_tensor(1), torch.as_tensor(index)
     
 
@@ -682,10 +684,11 @@ class create_single_dataset_idx(torch.utils.data.Dataset):
     
     
     
-def load_data_neighbor_v2(args, pseudo_labels=None): 
+def load_data_neighbor_v2(args, pseudo_labels=None, pseudo_labels_mask=None): 
     
-
-    print(THRES,N_NEIGHBOR_LIMIT)
+    THRES = args.nbr_dist_thres
+    # nbr_limit=args.nbr_limit
+    # print(THRES,args.nbr_limit)
     
     with open('/home/yichen/TS2Vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedNAN_5s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_doubletest_0809_withposandtrip_withinterpos.pickle', 'rb') as f:
         _,_,_,_,_,pos_trips,total_trips = pickle.load(f)
@@ -715,7 +718,7 @@ def load_data_neighbor_v2(args, pseudo_labels=None):
     print('Geolife:',dict(sorted(class_dict.items())))
     
     nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0810_geolifetrain_20neighbor_inter_find_neighbor_perpts_new_min10pts_idxonly_thres%dm.npy'%THRES, allow_pickle=True)
-    train_dataset_src = create_single_dataset_idx(train_x, train_y, nbr_idx_tuple, total_trips, pos_trips, dataset='src')
+    train_dataset_src = create_single_dataset_idx(train_x, train_y, nbr_idx_tuple, total_trips, pos_trips, dataset='src', nbr_limit=args.nbr_limit)
     
     
 
@@ -766,10 +769,11 @@ def load_data_neighbor_v2(args, pseudo_labels=None):
     nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0810_mtltrain_20neighbor_inter_find_neighbor_perpts_new_min10pts_idxonly_thres%dm.npy'%THRES, allow_pickle=True)
     if pseudo_labels is not None:
         pseudo_labels = np.array(pseudo_labels)
-    train_dataset_tgt = create_single_dataset_idx(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt')
+        pseudo_labels_mask = np.array(pseudo_labels_mask)
+    train_dataset_tgt = create_single_dataset_idx(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit)
     
     nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0810_mtltest_20neighbor_inter_find_neighbor_perpts_new_min10pts_idxonly_thres%dm.npy'%THRES, allow_pickle=True)
-    test_dataset = create_single_dataset_idx(test_x, test_y, nbr_idx_tuple, total_trips, pos_trips, part='test', dataset='tgt')
+    test_dataset = create_single_dataset_idx(test_x, test_y, nbr_idx_tuple, total_trips, pos_trips, part='test', dataset='tgt', nbr_limit=args.nbr_limit)
     
 
     print('Reading Data: (train: geolife + MTL, test: MTL)')

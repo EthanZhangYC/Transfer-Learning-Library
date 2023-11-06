@@ -227,115 +227,25 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
     for i in range(args.iters_per_epoch):
         # if i>5:
         #     break
-        
-        # x_s, labels_s = next(train_source_iter)[:2]
-        # x_t, = next(train_target_iter)[:1]
-        
-        # x_s = x_s.to(device)
-        # x_t = x_t.to(device)
-        # labels_s = labels_s.to(device)
-        # x = torch.cat((x_s, x_t), dim=0)
-        # assert x.requires_grad is False
-        
-        # # x_ori_src, labels_src, x_ori_src_neighbor, labels_neighbor, dist_src_neighbor, labels_domain_src = next(train_source_iter)
-        # # x_ori_tgt, x_ori_tgt_neighbor, dist_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_target_iter)
-        # x_ori_src, labels_src, x_ori_src_neighbor, masks_src_neighbor, labels_domain_src = next(train_src_iter)
-        # x_ori_tgt, x_ori_tgt_neighbor, masks_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_tgt_iter)
+
         x_ori_src, labels_s, x_ori_src_neighbor, labels_domain_src = next(train_src_iter) 
         x_ori_tgt, labels_t, labels_t_mask, x_ori_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_tgt_iter)
-
+        
         x_ori_src, labels_s, labels_domain_src = torch.stack(x_ori_src), torch.stack(labels_s), torch.stack(labels_domain_src)
         x_ori_tgt, labels_t, labels_t_mask, idx_tgt, labels_domain_tgt = torch.stack(x_ori_tgt), torch.stack(labels_t), torch.stack(labels_t_mask), torch.stack(idx_tgt), torch.stack(labels_domain_tgt)
         x_ori_src, x_ori_tgt = x_ori_src[:,:,2:], x_ori_tgt[:,:,2:] # time, dist, v, a, jerk, bearing, is_real
         x_ori_src, x_ori_tgt, labels_s, labels_t, labels_t_mask, idx_tgt = x_ori_src.to(device), x_ori_tgt.to(device), labels_s.to(device), labels_t.to(device), labels_t_mask.to(device), idx_tgt.to(device)
-        
-        neighbor_idx_src = [neighbor.shape[0] for neighbor in x_ori_src_neighbor]
-        neighbor_idx_src = np.insert(np.cumsum(neighbor_idx_src),0,0)
-        x_ori_src_neighbor = torch.cat(x_ori_src_neighbor)
-        
-        neighbor_idx_tgt = [neighbor.shape[0] for neighbor in x_ori_tgt_neighbor]
-        neighbor_idx_tgt = np.insert(np.cumsum(neighbor_idx_tgt),0,0)
-        x_ori_tgt_neighbor = torch.cat(x_ori_tgt_neighbor)
 
         # measure data loading time
         data_time.update(time.time() - end)
-
-        # Step A train all networks to minimize loss on source domain
-        # optimizer_g.zero_grad()
         optimizer_f.zero_grad()
-        
-        # aux_feat_src = torch.stack([x_s[:,:,0],x_s[:,:,-1]], axis=2)
-        # aux_feat_tgt = torch.stack([x_t[:,:,0],x_t[:,:,-1]], axis=2)
-        # aux_feat = torch.cat((aux_feat_src, aux_feat_tgt), dim=0)
 
         bs=x_ori_src.shape[0]
         x = torch.cat((x_ori_src, x_ori_tgt), dim=0)
         # _,_,g,_ = G(x)
         _,g,_,_,_,_,_ = G(x)
-        g_s,g_t = g[:bs],g[bs:]
-        
 
-        with torch.no_grad():
-            n_iter = x_ori_src_neighbor.shape[0]//bs
-            tmp_list=[]
-            for iter in range(n_iter):
-                neighbor = x_ori_src_neighbor[iter*bs:(iter+1)*bs,:,2:].to(device)
-                # mask = masks_src_neighbor[iter*bs:(iter+1)*bs].unsqueeze(2).to(device)
-                # neighbor = neighbor * mask
-                _,feat_src_avgpool_neighbor,_,_,_,_,_ = G(neighbor)
-                tmp_list.append(feat_src_avgpool_neighbor.cpu())
-            if x_ori_src_neighbor.shape[0]%bs!=0:
-                neighbor = x_ori_src_neighbor[n_iter*bs:,:,2:].to(device)
-                # mask = masks_src_neighbor[n_iter*bs:].unsqueeze(2).to(device)
-                # neighbor = neighbor * mask
-                _,feat_src_avgpool_neighbor,_,_,_,_,_ = G(neighbor)
-                tmp_list.append(feat_src_avgpool_neighbor.cpu())
-            feat_src_avgpool_neighbor = torch.cat(tmp_list,dim=0)
-            
-            feat_src_avgpool_neighbor_list=[]
-            for neighbor_idx,_ in enumerate(neighbor_idx_src):
-                if neighbor_idx==neighbor_idx_src.shape[0]-1:
-                    break
-                tmp_neighbor = feat_src_avgpool_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
-                tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
-                feat_src_avgpool_neighbor_list.append(tmp_neighbor)
-            feat_src_avgpool_neighbors = torch.stack(feat_src_avgpool_neighbor_list)
-                                   
-            n_iter = x_ori_tgt_neighbor.shape[0]//bs
-            tmp_list=[]
-            for iter in range(n_iter):
-                neighbor = x_ori_tgt_neighbor[iter*bs:(iter+1)*bs,:,2:].to(device)
-                # mask = masks_tgt_neighbor[iter*bs:(iter+1)*bs].unsqueeze(2).to(device)
-                # neighbor = neighbor * mask
-                _,feat_tgt_avgpool_neighbor,_,_,_,_,_ = G(neighbor)
-                tmp_list.append(feat_tgt_avgpool_neighbor.cpu())
-            if x_ori_tgt_neighbor.shape[0]%bs!=0:
-                neighbor = x_ori_tgt_neighbor[n_iter*bs:,:,2:].to(device)
-                # mask = masks_tgt_neighbor[n_iter*bs:].unsqueeze(2).to(device)
-                # neighbor = neighbor * mask
-                _,feat_tgt_avgpool_neighbor,_,_,_,_,_ = G(neighbor)
-                tmp_list.append(feat_tgt_avgpool_neighbor.cpu())
-            feat_tgt_avgpool_neighbor = torch.cat(tmp_list,dim=0)
-            
-            feat_tgt_avgpool_neighbor_list=[]
-            for neighbor_idx,_ in enumerate(neighbor_idx_tgt):
-                if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
-                    break
-                tmp_neighbor = feat_tgt_avgpool_neighbor[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]]
-                tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
-                feat_tgt_avgpool_neighbor_list.append(tmp_neighbor)
-            feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list)
-        
-        
-        if args.cat_mode=='cat':
-            g_s = torch.cat([g_s,feat_src_avgpool_neighbors],dim=1)
-            g_t = torch.cat([g_t,feat_tgt_avgpool_neighbors],dim=1)
-        else:
-            g_s = g_s + feat_src_avgpool_neighbors
-            g_t = g_t + feat_tgt_avgpool_neighbors
-        g = torch.cat((g_s, g_t), dim=0)
         aux_feat=None
-
         y_1 = F1(g, aux_feat)
         # y_2 = F2(g, aux_feat)
         y1_s, y1_t = y_1.chunk(2, dim=0)
@@ -393,90 +303,16 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn
         for i, data in enumerate(val_loader):
             # if i>5:
             #     break
-            
-            # images, target = data[:2]
-            # images = images.to(device)
-            # target = target.to(device)
-            
-            # x, labels, neighbors, dist_neighbors = data
-            # x, labels, neighbors, masks = data
-            x, labels, neighbors = data
+
+            x, labels, _ = data
             x, labels = torch.stack(x), torch.stack(labels)
             x, labels = x.to(device), labels.to(device)
             bs = x.shape[0]
             x = x[:,:,2:]
-            
-            neighbor_idx_src = [neighbor.shape[0] for neighbor in neighbors]
-            neighbor_idx_src = np.insert(np.cumsum(neighbor_idx_src),0,0)
-            neighbors = torch.cat(neighbors)
 
             # compute output
-            # _,_,g,_ = G(x)
-            _,g,_,_,_,_,_ = G(x)
-            # aux_feat = torch.stack([images[:,:,0],images[:,:,-1]], axis=2)
-
-            # # feat_neighbor_list=[]
-            # # for neighbor,dist in zip(neighbors, dist_neighbors):
-            # #     neighbor = neighbor[:,:,2:].to(device)
-            # #     dist = dist.to(device)
-            # #     # dist = F.softmax(torch.pow(dist, 1/args.dist_root))
-            # #     _,_,feat_neighbor,_ = G(neighbor)
-            # #     if neighbor.shape[0]==1:
-            # #         feat_neighbor = feat_neighbor.squeeze(0)
-            # #     else:
-            # #         attn = attn_net(dist.unsqueeze(2).transpose(0, 1))
-            # #         attn = F.softmax(attn[-1], dim=0)
-            # #         feat_neighbor = torch.sum(attn * feat_neighbor, dim=0)
-            # #     feat_neighbor_list.append(feat_neighbor)
-            # # feat_neighbor = torch.stack(feat_neighbor_list)
-            # feat_neighbor_list=[]
-            # for neighbor,mask in zip(neighbors, masks):
-            #     neighbor = neighbor[:,:,2:].to(device)
-            #     mask = mask.unsqueeze(2).to(device)
-            #     neighbor = neighbor * mask
-                                            
-            #     n_iter = neighbor.shape[0]//bs
-            #     tmp_list=[]
-            #     for iter in range(n_iter):
-            #         _,feat_neighbor,_,_,_,_,_ = G(neighbor[iter*bs:(iter+1)*bs])
-            #         tmp_list.append(feat_neighbor)
-            #     if neighbor.shape[0]%bs!=0:
-            #         _,feat_neighbor,_,_,_,_,_ = G(neighbor[n_iter*bs:])
-            #         tmp_list.append(feat_neighbor)
-
-            #     feat_neighbor = torch.cat(tmp_list,dim=0)
-            #     feat_neighbor = torch.mean(feat_neighbor, dim=0)
-            #     feat_neighbor_list.append(feat_neighbor)
-            #     del tmp_list
-            # feat_neighbor = torch.stack(feat_neighbor_list)
-            n_iter = neighbors.shape[0]//bs
-            tmp_list=[]
-            for iter in range(n_iter):
-                neighbor = neighbors[iter*bs:(iter+1)*bs,:,2:].to(device)
-                _,feat_neighbor,_,_,_,_,_ = G(neighbor)
-                tmp_list.append(feat_neighbor.cpu())
-            if neighbors.shape[0]%bs!=0:
-                neighbor = neighbors[n_iter*bs:,:,2:].to(device)
-                _,feat_neighbor,_,_,_,_,_ = G(neighbor)
-                tmp_list.append(feat_neighbor.cpu())
-            feat_neighbor = torch.cat(tmp_list,dim=0)
-            
-            feat_neighbor_list=[]
-            for neighbor_idx,_ in enumerate(neighbor_idx_src):
-                if neighbor_idx==neighbor_idx_src.shape[0]-1:
-                    break
-                tmp_neighbor = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
-                tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
-                feat_neighbor_list.append(tmp_neighbor)
-            feat_neighbors = torch.stack(feat_neighbor_list) 
-            
-            if args.cat_mode=='cat':
-                g = torch.cat([g,feat_neighbors],dim=1)
-            else:
-                g = g + feat_neighbors
             aux_feat = None
-
-            
+            _,g,_,_,_,_,_ = G(x)
             y1 = F1(g, aux_feat)
             # y1, y2 = F1(g, aux_feat), F2(g, aux_feat)
 
@@ -487,7 +323,6 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn
                 confmat.update(labels, y1.argmax(1))
             top1_1.update(acc1.item(), bs)
             # top1_2.update(acc2.item(), bs)
-            
             
             _, preds1 = torch.max(y1, 1)
             # _, preds2 = torch.max(y2, 1)
