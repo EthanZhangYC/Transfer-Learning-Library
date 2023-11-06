@@ -10,7 +10,7 @@ from tllib.modules.grl import WarmStartGradientReverseLayer
 from einops import rearrange, repeat, pack, unpack
 from einops.layers.torch import Rearrange
 
-__all__ = ['TSEncoder','Classifier_clf','ViT','AttnNet','TSEncoder_new']
+__all__ = ['TSEncoder','Classifier_clf','ViT','AttnNet','TSEncoder_new', 'Classifier_clf_samedim']
 
 
 class GradientReversalFunction(torch.autograd.Function):
@@ -71,7 +71,6 @@ class Classifier_domain(nn.Module):
         return x
 
 class Classifier_clf(nn.Module):
-    
     def __init__(self, n_class=4, input_dim=64):
         super(Classifier_clf, self).__init__()
         # self.dropout = nn.Dropout(p=0.5)
@@ -88,6 +87,26 @@ class Classifier_clf(nn.Module):
         feat = x
         x = self.fc2(x)
         return x
+    
+class Classifier_clf_samedim(nn.Module):
+    
+    def __init__(self, n_class=4, input_dim=64):
+        super(Classifier_clf_samedim, self).__init__()
+        self.convert = nn.Linear(input_dim*2, input_dim)
+        self.fc1 = nn.Linear(input_dim, 64)
+        self.fc2 = nn.Linear(64, n_class)
+        self.dropout_p = 0.1
+        self.dropout = nn.Dropout(p=self.dropout_p)
+
+    def forward(self, x, aux_feat=None): 
+        x = self.convert(x)
+        feat = x = self.dropout(F.relu(self.fc1(x)))
+        x = self.fc2(x)
+        return x
+    
+    
+    
+    
 
 class SECAEncoder(nn.Module):
     def __init__(self, n_class=4):

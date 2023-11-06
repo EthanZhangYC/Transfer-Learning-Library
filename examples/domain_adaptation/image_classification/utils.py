@@ -199,6 +199,7 @@ def load_data(args):
     )
     train_dataset_mtl = TensorDataset(
         torch.from_numpy(train_x_mtl).to(torch.float),
+        torch.from_numpy(train_y_mtl), # add label for debug
         torch.from_numpy(np.array([1]*n_mtl)).float(),
         torch.from_numpy(np.arange(n_mtl))
     )

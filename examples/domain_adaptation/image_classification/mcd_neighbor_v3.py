@@ -101,8 +101,12 @@ def main(args: argparse.Namespace):
     # F2_ori = models.Classifier_clf(input_dim=64).to(device)
     if args.cat_mode=='cat':
         F1 = models.Classifier_clf(input_dim=64*2).to(device)
-    else:
+    elif args.cat_mode=='cat_samedim':
+        F1 = models.Classifier_clf_samedim(input_dim=64).to(device)
+    elif args.cat_mode=='add':
         F1 = models.Classifier_clf(input_dim=64).to(device)
+    else:
+        raise NotImplementedError
     # F2 = models.Classifier_clf(input_dim=64*2).to(device)
     # F1 = models.ViT(use_auxattn=True, double_attn=True).to(device)
     # F2 = models.ViT(use_auxattn=True, double_attn=True).to(device)
@@ -114,6 +118,9 @@ def main(args: argparse.Namespace):
     G.load_state_dict(ckpt['G'], strict=False)
     F1_ori.load_state_dict(ckpt['F2'])#, strict=False)
     # F2_ori.load_state_dict(ckpt['F2'])#, strict=False)
+    
+    if args.cat_mode=='cat_samedim':
+        F1.load_state_dict(ckpt['F2'], strict=False)
     
     for param in G.parameters():
         param.requires_grad = False 
@@ -327,7 +334,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
             feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list)
         
         
-        if args.cat_mode=='cat':
+        if 'cat' in args.cat_mode:
             g_s = torch.cat([g_s,feat_src_avgpool_neighbors],dim=1)
             g_t = torch.cat([g_t,feat_tgt_avgpool_neighbors],dim=1)
         else:
@@ -470,7 +477,7 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn
                 feat_neighbor_list.append(tmp_neighbor)
             feat_neighbors = torch.stack(feat_neighbor_list) 
             
-            if args.cat_mode=='cat':
+            if 'cat' in args.cat_mode:
                 g = torch.cat([g,feat_neighbors],dim=1)
             else:
                 g = g + feat_neighbors
@@ -571,8 +578,7 @@ def get_pseudo_labels_by_proportion(val_loader: DataLoader, G: nn.Module, F1: Im
             # pseudo_class = pseudo_class.tolist()
             for idx,prob in enumerate(max_prob):
                 per_class_dict[y[idx]].append((i*args.batch_size+idx, prob))
-            
-            
+                
     mask_list = torch.zeros(cnt)
     for c in per_class_dict:
         tmp_prob = torch.tensor(per_class_dict[c])
@@ -583,6 +589,74 @@ def get_pseudo_labels_by_proportion(val_loader: DataLoader, G: nn.Module, F1: Im
     mask_list = mask_list.bool().tolist()
             
     return y_list,mask_list
+
+
+def get_pseudo_labels_by_confidence_and_proportion(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, args: argparse.Namespace):
+    top1 = AverageMeter('Acc_1', ':6.2f')
+    
+    nb_classes = 4
+    confusion_matrix = torch.zeros(nb_classes, nb_classes) 
+    label_dict = {"walk": 0, "bike": 1, "car": 2, "train": 3}
+    idx_dict={}
+    for k,v in label_dict.items():
+        idx_dict[v]=k
+        
+    G.eval()
+    F1.eval()
+    # attn_net.eval()
+
+    THRESHOLD=args.pseudo_thres
+    y_list=[]
+    mask_list_conf=[]
+    per_class_dict={0:[],1:[],2:[],3:[]}
+    cnt = 0
+    with torch.no_grad():
+        for i, data in enumerate(val_loader):
+            images = data[0]
+            labels = data[1]
+            images,labels = images.to(device), labels.to(device)
+            _,g,_,_,_,_,_ = G(images)
+            y = F1(g, None)
+            
+            acc1, = accuracy(y, labels)
+            top1.update(acc1.item(), images.shape[0])
+            _, preds = torch.max(y, 1)
+            for t, p in zip(labels.view(-1), preds.view(-1)):
+                confusion_matrix[t.long(), p.long()] += 1
+                
+        
+            max_prob,_ = torch.max(F.softmax(y),dim=1)
+            mask = (max_prob >= THRESHOLD).tolist()
+            y = torch.argmax(y,dim=1).tolist()
+            
+            cnt += images.shape[0]
+            y_list += y
+            mask_list_conf += mask
+
+            max_prob = max_prob.tolist()
+            for idx,prob in enumerate(max_prob):
+                per_class_dict[y[idx]].append((i*args.batch_size+idx, prob))
+            
+            
+    mask_list_propor = torch.zeros(cnt)
+    for c in per_class_dict:
+        tmp_prob = torch.tensor(per_class_dict[c])
+        n_total = tmp_prob.shape[0]
+        probs,indices = torch.topk(tmp_prob[:,1], k=int(n_total*args.pseudo_ratio))
+        indices_ori = tmp_prob[:,0][indices].long()
+        mask_list_propor[indices_ori] = 1
+    mask_list_propor = mask_list_propor.bool().tolist()
+    mask_list = mask_list_conf or mask_list_propor
+    
+
+    print(str(confusion_matrix))
+    per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
+    print('per class accuracy:')
+    for idx,acc in enumerate(per_class_acc):
+        print('\t '+str(idx_dict[idx])+': '+str(acc))
+    print(' * Acc1 {top1.avg:.3f}'.format(top1=top1))
+    
+    return y_list, mask_list
 
 
 

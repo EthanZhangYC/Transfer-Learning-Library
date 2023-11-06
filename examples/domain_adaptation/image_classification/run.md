@@ -169,42 +169,11 @@ python mcd_neighbor_v3.py \
 
 
 
-CUDA_VISIBLE_DEVICES=6 \
-python mcd_neighbor_v3.py \
---epochs 30 \
---batch-size 64 \
--i 294 \
---seed 42 \
---lr 5e-4 \
---wd 1e-4 \
---interpolatedlinear \
---trade-off 1 \
---trade-off-entropy 0.1 \
---trade-off-pseudo 1 \
+
 --cat_mode add \
---pseudo_thres 0.95 \
---nbr_dist_thres 30 \
---nbr_limit 10 \
---log logs/1027_mcd_freeze_01_30m_rmBC_nbrlimit10_correctpseudo_pseudofilter95_featadd_pseudoweight1_clsnopretrain
 
-CUDA_VISIBLE_DEVICES=5 \
-python mcd_neighbor_v3.py \
---epochs 30 \
---batch-size 64 \
--i 294 \
---seed 42 \
---lr 5e-4 \
---wd 1e-4 \
---interpolatedlinear \
---trade-off 1 \
---trade-off-entropy 0.1 \
---trade-off-pseudo 1 \
---cat_mode cat \
---pseudo_thres 0.95 \
---nbr_dist_thres 30 \
---nbr_limit 10 \
 --loss_mode tgtce \
---log logs/1027_mcd_freeze_01_30m_rmBC_nbrlimit10_correctpseudo_pseudofilter95_featcat_pseudoweight1_tgtce
+
 
 
 CUDA_VISIBLE_DEVICES=6 \
@@ -221,29 +190,11 @@ python mcd_neighbor_v3.py \
 --trade-off-pseudo 0.1 \
 --cat_mode cat \
 --nbr_dist_thres 30 \
---nbr_limit 100 \
---pseudo_mode proportion \
---pseudo_ratio 0.666 \
---log logs/1027_mcd_freeze_01_30m_rmBC_nbrlimit100_correctpseudo_pseudoproportion0666_featcat_pseudoweight01
-
-CUDA_VISIBLE_DEVICES=8 \
-python mcd_neighbor_v3.py \
---epochs 100 \
---batch-size 64 \
--i 294 \
---seed 42 \
---lr 5e-4 \
---wd 1e-4 \
---interpolatedlinear \
---trade-off 1 \
---trade-off-entropy 0.1 \
---trade-off-pseudo 0.1 \
---cat_mode cat \
---nbr_dist_thres 30 \
 --nbr_limit 10 \
 --pseudo_mode proportion \
 --pseudo_ratio 0.666 \
---log logs/1027_mcd_freeze_01_30m_rmBC_nbrlimit10_correctpseudo_pseudoproportion0666_featcat_pseudoweight01_epoch100
+--log logs/1027_mcd_freeze_01_30m_rmBC_nbrlimit10_correctpseudo_pseudoproportion0666_featcat_pseudoweight01
+
 
 
 CUDA_VISIBLE_DEVICES=8 \
@@ -257,11 +208,53 @@ python mcd_neighbor_v3_pseudoonly.py \
 --interpolatedlinear \
 --trade-off 1 \
 --trade-off-entropy 0.1 \
---trade-off-pseudo 0.5 \
+--trade-off-pseudo 0.1 \
 --cat_mode add \
 --pseudo_mode proportion \
 --pseudo_ratio 0.666 \
---log logs/1101_mcd_freeze_01_rmBC_correctpseudo_pseudoproportion0666_pseudoweight05_nonbrpseudoonly
+--log logs/1101_mcd_freeze_01_rmBC_correctpseudo_pseudoproportion0666_pseudoweight01_nonbrpseudoonly
+
+
+
+# need run:
+
+
+CUDA_VISIBLE_DEVICES=8 \
+python mcd_neighbor_v3_pseudoonly.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--cat_mode add \
+--pseudo_mode confidence_and_proportion \
+--pseudo_thres 0.95 \
+--pseudo_ratio 0.666 \
+--log logs/1106_mcd_freeze_01_rmBC_correctpseudo_pseudoconf95propor0666_pseudoweight01_nonbrpseudoonly
+
+CUDA_VISIBLE_DEVICES=8 \
+python mcd_neighbor_v3.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--cat_mode cat_samedim \
+--nbr_dist_thres 30 \
+--nbr_limit 10 \
+--pseudo_mode proportion \
+--pseudo_ratio 0.666 \
+--log logs/1106_mcd_freeze_01_30m_rmBC_nbrlimit10_correctpseudo_pseudoproportion0666_featcatsamedim_pseudoweight01
 
 
 
