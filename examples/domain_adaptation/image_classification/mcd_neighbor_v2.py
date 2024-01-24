@@ -78,7 +78,7 @@ def main(args: argparse.Namespace):
 
     # train_source_iter = ForeverDataIterator(train_source_loader)
     # train_target_iter = ForeverDataIterator(train_target_loader)
-    train_source_iter, train_target_iter, val_loader = utils.load_data_neighbor_v2(args)
+    train_source_iter, train_target_iter, val_loader = utils.load_data_neighbor_v3(args)
     G = models.TSEncoder_new().to(device)
     classifier_features_dim=64
     num_classes = 4
@@ -220,7 +220,8 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
         # x_ori_src, labels_src, x_ori_src_neighbor, masks_src_neighbor, labels_domain_src = next(train_src_iter)
         # x_ori_tgt, x_ori_tgt_neighbor, masks_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_tgt_iter)
         x_ori_src, labels_src, x_ori_src_neighbor, labels_domain_src = next(train_src_iter) 
-        x_ori_tgt, x_ori_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_tgt_iter)
+        # x_ori_tgt, x_ori_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_tgt_iter)
+        x_ori_tgt, _, _, x_ori_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_tgt_iter)
 
         x_ori_src, labels_src, labels_domain_src = torch.stack(x_ori_src), torch.stack(labels_src), torch.stack(labels_domain_src)
         x_ori_tgt, idx_tgt, labels_domain_tgt = torch.stack(x_ori_tgt), torch.stack(idx_tgt), torch.stack(labels_domain_tgt)
@@ -926,6 +927,10 @@ if __name__ == '__main__':
     parser.add_argument('--interpolated', action="store_true", help='Whether to perform evaluation after training')
     parser.add_argument('--interpolatedlinear', action="store_true", help='Whether to perform evaluation after training')
     parser.add_argument('--trip_time', type=int, default=20, help='')
+    
+    parser.add_argument("--cat_mode", type=str, default='cat', help="Where to save logs, checkpoints and debugging images.")
+    parser.add_argument('--nbr_dist_thres', default=10, type=int, help='initial learning rate')
+    parser.add_argument('--nbr_limit', default=100000, type=int, help='initial learning rate')
 
     args = parser.parse_args()
     main(args)

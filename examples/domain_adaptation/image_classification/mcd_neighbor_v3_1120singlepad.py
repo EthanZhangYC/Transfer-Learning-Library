@@ -149,7 +149,7 @@ def main(args: argparse.Namespace):
     # pseudo_labels,pseudo_labels_mask = get_pseudo_labels(train_loader_target, G, F1_ori, args)
     pseudo_labels,pseudo_labels_mask = eval('get_pseudo_labels_by_'+args.pseudo_mode)(train_loader_target, G, F1_ori, args)
     del F1_ori#,F2_ori#,train_loader_target
-    train_source_iter, train_target_iter, val_loader = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
+    train_source_iter, train_target_iter, val_loader = utils.load_data_neighbor_v2_singlepad(args, pseudo_labels, pseudo_labels_mask)
 
     
 
@@ -229,45 +229,6 @@ def main(args: argparse.Namespace):
 
     logger.close()
 
-
-class Attention(nn.Module):
-    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0.):
-        super().__init__()
-        inner_dim = dim_head *  heads
-        self.heads = heads
-        self.scale = dim_head ** -0.5
-
-        self.norm = nn.LayerNorm(dim)
-        self.attend = nn.Softmax(dim = -1)
-        self.dropout = nn.Dropout(dropout)
-
-        self.to_q = nn.Linear(dim, inner_dim, bias = False)
-        self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
-
-        self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim),
-            nn.Dropout(dropout)
-        )
-
-    def forward(self, x, context = None, kv_include_self = False):
-        b, n, _, h = *x.shape, self.heads
-        x = self.norm(x)
-        context = default(context, x)
-
-        if kv_include_self:
-            context = torch.cat((x, context), dim = 1) # cross attention requires CLS token includes itself as key / value
-
-        qkv = (self.to_q(x), *self.to_kv(context).chunk(2, dim = -1))
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
-
-        dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
-
-        attn = self.attend(dots)
-        attn = self.dropout(attn)
-
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)
-        out = rearrange(out, 'b h n d -> b n (h d)')
-        return self.to_out(out)
 
 
 def softmax_mse_loss(input_logits, target_logits, masks):
@@ -809,7 +770,7 @@ def get_pseudo_labels_by_entropyproportion(val_loader: DataLoader, G: nn.Module,
     # F1.train()
     # attn_net.eval()
     
-    cnt = 0
+    # cnt = 0
     # THRESHOLD=args.pseudo_thres
     y_list=[]
     # mask_list_conf=[]
@@ -831,7 +792,6 @@ def get_pseudo_labels_by_entropyproportion(val_loader: DataLoader, G: nn.Module,
             # mask = (max_prob >= THRESHOLD).tolist()
             y = torch.argmax(y,dim=1).tolist()
             y_list += y
-            cnt += images.shape[0]
             # mask_list_conf += mask
             
     print(str(confusion_matrix))
@@ -843,35 +803,30 @@ def get_pseudo_labels_by_entropyproportion(val_loader: DataLoader, G: nn.Module,
     
     
     
-    # cnt = 0
-    # enable_dropout(F1)
-    # per_class_dict={0:[],1:[],2:[],3:[]}
-    # with torch.no_grad():
-    #     for i, data in enumerate(val_loader):
-    #         images = data[0]
-    #         labels = data[1]
-    #         images,labels = images.to(device), labels.to(device)
-    #         _,g,_,_,_,_,_ = G(images)
+    cnt = 0
+    enable_dropout(F1)
+    per_class_dict={0:[],1:[],2:[],3:[]}
+    with torch.no_grad():
+        for i, data in enumerate(val_loader):
+            images = data[0]
+            labels = data[1]
+            images,labels = images.to(device), labels.to(device)
+            _,g,_,_,_,_,_ = G(images)
             
-    #         all_y_list=[]
-    #         for idx in range(5):
-    #             y = F1(g, None)
-    #             all_y_list.append(F.softmax(y,dim=1))
+            all_y_list=[]
+            for idx in range(5):
+                y = F1(g, None)
+                all_y_list.append(F.softmax(y,dim=1))
             
-    #         cnt += images.shape[0]
+            cnt += images.shape[0]
             
-    #         preds = torch.stack(all_y_list, dim=0)
-    #         preds = torch.mean(preds, dim=0) 
-    #         entropy = -1.0*torch.mean(preds*torch.log(preds + 1e-6), dim=1) #, keepdim=True) 
-    #         entropy = entropy.tolist()
-    #         for idx,ent in enumerate(entropy):
-    #             per_class_dict[y_list[i*args.batch_size+idx]].append((i*args.batch_size+idx, ent))
-    
-    # # pdb.set_trace()
-    # # np.save("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/entropy_per_class_dict.npy", per_class_dict)
-    
-    cnt = 18833
-    per_class_dict = np.load("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/entropy_per_class_dict.npy", allow_pickle=True).item()
+            preds = torch.stack(all_y_list, dim=0)
+            preds = torch.mean(preds, dim=0) 
+            entropy = -1.0*torch.mean(preds*torch.log(preds + 1e-6), dim=1) #, keepdim=True) 
+            entropy = entropy.tolist()
+            for idx,ent in enumerate(entropy):
+                per_class_dict[y_list[i*args.batch_size+idx]].append((i*args.batch_size+idx, ent))
+      
             
     mask_list_propor = torch.zeros(cnt)
     for c in per_class_dict:
@@ -938,7 +893,7 @@ def get_pseudo_labels_by_confidence_and_entropyproportion(val_loader: DataLoader
     # F1.train()
     # attn_net.eval()
     
-    cnt = 0
+    # cnt = 0
     THRESHOLD=args.pseudo_thres
     y_list=[]
     mask_list_conf=[]
@@ -961,59 +916,54 @@ def get_pseudo_labels_by_confidence_and_entropyproportion(val_loader: DataLoader
             y = torch.argmax(y,dim=1).tolist()
             y_list += y
             mask_list_conf += mask
+            
+    print(str(confusion_matrix))
+    per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
+    print('per class accuracy:')
+    for idx,acc in enumerate(per_class_acc):
+        print('\t '+str(idx_dict[idx])+': '+str(acc))
+    print(' * Acc1 {top1.avg:.3f}'.format(top1=top1))
+    
+    
+    
+    cnt = 0
+    enable_dropout(F1)
+    per_class_dict={0:[],1:[],2:[],3:[]}
+    with torch.no_grad():
+        for i, data in enumerate(val_loader):
+            images = data[0]
+            labels = data[1]
+            images,labels = images.to(device), labels.to(device)
+            _,g,_,_,_,_,_ = G(images)
+            
+            all_y_list=[]
+            for idx in range(5):
+                y = F1(g, None)
+                all_y_list.append(F.softmax(y,dim=1))
+            # y=all_y_list[0]
+            
+            # acc1, = accuracy(y, labels)
+            # top1.update(acc1.item(), images.shape[0])
+            # _, preds = torch.max(y, 1)
+            # for t, p in zip(labels.view(-1), preds.view(-1)):
+            #     confusion_matrix[t.long(), p.long()] += 1
+                
+            # max_prob,_ = torch.max(y,dim=1)
+            # mask = (max_prob >= THRESHOLD).tolist()
+            # y = torch.argmax(y,dim=1).tolist()
+            
             cnt += images.shape[0]
-                
-    # print(str(confusion_matrix))
-    # per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
-    # print('per class accuracy:')
-    # for idx,acc in enumerate(per_class_acc):
-    #     print('\t '+str(idx_dict[idx])+': '+str(acc))
-    # print(' * Acc1 {top1.avg:.3f}'.format(top1=top1))
-    
-    
-    
-    # cnt = 0
-    # enable_dropout(F1)
-    # per_class_dict={0:[],1:[],2:[],3:[]}
-    # with torch.no_grad():
-    #     for i, data in enumerate(val_loader):
-    #         images = data[0]
-    #         labels = data[1]
-    #         images,labels = images.to(device), labels.to(device)
-    #         _,g,_,_,_,_,_ = G(images)
+            # y_list += y
+            # mask_list_conf += mask
             
-    #         all_y_list=[]
-    #         for idx in range(5):
-    #             y = F1(g, None)
-    #             all_y_list.append(F.softmax(y,dim=1))
-    #         # y=all_y_list[0]
-            
-    #         # acc1, = accuracy(y, labels)
-    #         # top1.update(acc1.item(), images.shape[0])
-    #         # _, preds = torch.max(y, 1)
-    #         # for t, p in zip(labels.view(-1), preds.view(-1)):
-    #         #     confusion_matrix[t.long(), p.long()] += 1
-                
-    #         # max_prob,_ = torch.max(y,dim=1)
-    #         # mask = (max_prob >= THRESHOLD).tolist()
-    #         # y = torch.argmax(y,dim=1).tolist()
-            
-    #         cnt += images.shape[0]
-    #         # y_list += y
-    #         # mask_list_conf += mask
-            
-    #         preds = torch.stack(all_y_list, dim=0)
-    #         preds = torch.mean(preds, dim=0) 
-    #         entropy = -1.0*torch.mean(preds*torch.log(preds + 1e-6), dim=1) #, keepdim=True) 
-    #         entropy = entropy.tolist()
-    #         for idx,ent in enumerate(entropy):
-    #             per_class_dict[y_list[i*args.batch_size+idx]].append((i*args.batch_size+idx, ent))
+            preds = torch.stack(all_y_list, dim=0)
+            preds = torch.mean(preds, dim=0) 
+            entropy = -1.0*torch.mean(preds*torch.log(preds + 1e-6), dim=1) #, keepdim=True) 
+            entropy = entropy.tolist()
+            for idx,ent in enumerate(entropy):
+                per_class_dict[y_list[i*args.batch_size+idx]].append((i*args.batch_size+idx, ent))
       
             
-    cnt = 18833
-    per_class_dict = np.load("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/entropy_per_class_dict.npy", allow_pickle=True).item()
-        
-        
     mask_list_propor = torch.zeros(cnt)
     for c in per_class_dict:
         tmp_prob = torch.tensor(per_class_dict[c])

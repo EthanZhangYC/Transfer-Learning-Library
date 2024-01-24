@@ -113,8 +113,11 @@ def main(args: argparse.Namespace):
         else:
             F1_t = None
     elif args.cat_mode=='add':
-        raise NotImplementedError
         F1 = models.Classifier_clf(input_dim=64).to(device)
+        if args.mean_tea:
+            F1_t = models.Classifier_clf(input_dim=64).to(device)
+        else:
+            F1_t = None
     else:
         raise NotImplementedError
     # F2 = models.Classifier_clf(input_dim=64*2).to(device)
@@ -122,6 +125,7 @@ def main(args: argparse.Namespace):
     # F2 = models.ViT(use_auxattn=True, double_attn=True).to(device)
     attn_net = models.AttnNet().to(device)
     
+    multihead_attn = nn.MultiheadAttention(64, num_heads=args.num_head, batch_first=True).to(device)
 
     
     
@@ -164,6 +168,7 @@ def main(args: argparse.Namespace):
     optimizer_f = Adam([
         {"params": F1.parameters()},
         # {"params": F2.parameters()},
+        {"params": multihead_attn.parameters()},
         {"params": attn_net.parameters()},
     ], args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
 
@@ -200,16 +205,17 @@ def main(args: argparse.Namespace):
     best_epoch = 0
     for epoch in range(args.epochs):
         # train for one epoch
-        train(train_source_iter, train_target_iter, G, F1, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t)
+        train(train_source_iter, train_target_iter, G, F1, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t, multihead_attn)
 
         # evaluate on validation set
-        results = validate(val_loader, G, F1, attn_net, args, F1_t)
+        results = validate(val_loader, G, F1, attn_net, args, F1_t, multihead_attn)
 
         # remember best acc@1 and save checkpoint
         torch.save({
             'G': G.state_dict(),
             'F1': F1.state_dict(),
             # 'F2': F2.state_dict(),
+            'multihead_attn': multihead_attn.state_dict(),
             'attnnet':attn_net.state_dict()
         }, logger.get_checkpoint_path('latest'))
         if max(results) > best_acc1:
@@ -287,7 +293,7 @@ def softmax_mse_loss(input_logits, target_logits, masks):
 
 def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterator,
           G: nn.Module, F1: ImageClassifierHead, attn_net: nn.Module,
-          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t):
+          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t, multihead_attn):
     batch_time = AverageMeter('Time', ':3.1f')
     data_time = AverageMeter('Data', ':3.1f')
     losses = AverageMeter('Loss', ':3.2f')
@@ -310,6 +316,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
         F1_t.eval()
     # F2.train()
     attn_net.train()
+    multihead_attn.train()
 
     end = time.time()
     for i in range(args.iters_per_epoch):
@@ -379,15 +386,6 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                 _,feat_src_avgpool_neighbor,_,_,_,_,_ = G(neighbor)
                 tmp_list.append(feat_src_avgpool_neighbor.cpu())
             feat_src_avgpool_neighbor = torch.cat(tmp_list,dim=0)
-            
-            feat_src_avgpool_neighbor_list=[]
-            for neighbor_idx,_ in enumerate(neighbor_idx_src):
-                if neighbor_idx==neighbor_idx_src.shape[0]-1:
-                    break
-                tmp_neighbor = feat_src_avgpool_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
-                tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
-                feat_src_avgpool_neighbor_list.append(tmp_neighbor)
-            feat_src_avgpool_neighbors = torch.stack(feat_src_avgpool_neighbor_list)
                                    
             n_iter = x_ori_tgt_neighbor.shape[0]//bs
             tmp_list=[]
@@ -405,15 +403,49 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                 tmp_list.append(feat_tgt_avgpool_neighbor.cpu())
             feat_tgt_avgpool_neighbor = torch.cat(tmp_list,dim=0)
             
-            feat_tgt_avgpool_neighbor_list=[]
-            for neighbor_idx,_ in enumerate(neighbor_idx_tgt):
-                if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
-                    break
-                tmp_neighbor = feat_tgt_avgpool_neighbor[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]]
-                tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
-                feat_tgt_avgpool_neighbor_list.append(tmp_neighbor)
-            feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list)
         
+        g_s = g_s.unsqueeze(1)
+        g_t = g_t.unsqueeze(1)
+        
+        feat_src_avgpool_neighbor_list=[]
+        for neighbor_idx,_ in enumerate(neighbor_idx_src):
+            if neighbor_idx==neighbor_idx_src.shape[0]-1:
+                break
+            # tmp_neighbor = feat_src_avgpool_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
+            # tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
+            
+            key = value = feat_src_avgpool_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
+            query = g_s[neighbor_idx] # might change to dist?
+            attn_output_neighbors_s, attn_output_weights_s = multihead_attn(query, key, value)
+            feat_src_avgpool_neighbor_list.append(attn_output_neighbors_s)
+        feat_src_avgpool_neighbors = torch.stack(feat_src_avgpool_neighbor_list).squeeze(1)
+            
+        feat_tgt_avgpool_neighbor_list=[]
+        for neighbor_idx,_ in enumerate(neighbor_idx_tgt):
+            if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
+                break
+            key = value = feat_tgt_avgpool_neighbor[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]].to(device)
+            query = g_t[neighbor_idx]
+            attn_output_neighbors_t, attn_output_weights_t = multihead_attn(query, key, value)
+            
+            # tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
+            feat_tgt_avgpool_neighbor_list.append(attn_output_neighbors_t)
+        feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list).squeeze(1)
+        
+        g_s = g_s.squeeze(1)
+        g_t = g_t.squeeze(1)
+        
+        
+        
+        # query = g_s.unsqueeze(1)
+        # key = value = feat_src_avgpool_neighbors.unsqueeze(1)
+        # feat_src_avgpool_neighbors, attn_output_weights_s = multihead_attn(query, key, value)
+        # pdb.set_trace()
+        # query = g_t.unsqueeze(1)
+        # key = value = feat_tgt_avgpool_neighbors.unsqueeze(1)
+        # feat_tgt_avgpool_neighbors, attn_output_weights_t = multihead_attn(query, key, value)
+        # # g = torch.cat((attn_output_s, attn_output_t), dim=0)
+
         
         if 'cat' in args.cat_mode:
             g_s = torch.cat([g_s,feat_src_avgpool_neighbors],dim=1)
@@ -485,7 +517,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
             progress.display(i)
 
 
-def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, F1_t) -> Tuple[float, float]:
+def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, F1_t, multihead_attn) -> Tuple[float, float]:
     batch_time = AverageMeter('Time', ':6.3f')
     top1_1 = AverageMeter('Acc_1', ':6.2f')
     top1_2 = AverageMeter('Acc_2', ':6.2f')
@@ -502,6 +534,7 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn
 
     # F2.eval()
     attn_net.eval()
+    multihead_attn.eval()
 
     if args.per_class_eval:
         confmat = ConfusionMatrix(len(args.class_names))
@@ -590,15 +623,32 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn
                 tmp_list.append(feat_neighbor.cpu())
             feat_neighbor = torch.cat(tmp_list,dim=0)
             
+            # feat_neighbor_list=[]
+            # for neighbor_idx,_ in enumerate(neighbor_idx_src):
+            #     if neighbor_idx==neighbor_idx_src.shape[0]-1:
+            #         break
+            #     tmp_neighbor = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
+            #     tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
+            #     feat_neighbor_list.append(tmp_neighbor)
+            # feat_neighbors = torch.stack(feat_neighbor_list) 
+            
+            g = g.unsqueeze(1)
             feat_neighbor_list=[]
             for neighbor_idx,_ in enumerate(neighbor_idx_src):
                 if neighbor_idx==neighbor_idx_src.shape[0]-1:
                     break
-                tmp_neighbor = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
-                tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
-                feat_neighbor_list.append(tmp_neighbor)
-            feat_neighbors = torch.stack(feat_neighbor_list) 
-            
+                key = value = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
+                query = g[neighbor_idx]
+                attn_output_neighbors, attn_output_weights = multihead_attn(query, key, value)
+                feat_neighbor_list.append(attn_output_neighbors)
+            feat_neighbors = torch.stack(feat_neighbor_list).squeeze(1)
+            g = g.squeeze(1)
+        
+            # query = g
+            # key = value = feat_neighbors
+            # feat_neighbors, attn_output_weights = multihead_attn(query, key, value)
+            # # g = attn_output   
+
             if 'cat' in args.cat_mode:
                 g = torch.cat([g,feat_neighbors],dim=1)
             else:
@@ -1161,6 +1211,7 @@ if __name__ == '__main__':
     parser.add_argument('--trade-off-consis', default=1., type=float)
     parser.add_argument('--momentum', default=0.9, type=float)
     parser.add_argument('--mean_tea', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument('--num_head', default=2, type=int, help='initial learning rate')
 
 
     args = parser.parse_args()
