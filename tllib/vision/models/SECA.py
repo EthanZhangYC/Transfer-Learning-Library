@@ -451,7 +451,7 @@ class TSEncoder_new(nn.Module):
             ori_mask = mask.detach()
             mask &= nan_mask
             # x[~mask] = 0
-            x[~mask] = -1 # masked->False
+            x[~mask] = 0 # masked->False
 
         else:
             ori_mask=None

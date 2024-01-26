@@ -779,8 +779,71 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
         return len(self.imgs)
     
     
+class create_single_dataset_idx_v4(torch.utils.data.Dataset):
+    def __init__(self, imgs, labels, neighbors_idx, total_trips, pos_trips=None, part='train', transform=None, dataset='', label_mask=None, nbr_limit=10):
+        super(create_single_dataset_idx_v4, self).__init__()
+        
+        self.imgs = imgs.astype(np.float32)
+        self.labels = labels
+        self.neighbors_idx = neighbors_idx
+        self.total_trips = total_trips
+        self.pos_trips = pos_trips
+        # self.neighbor_labels = neighbor_labels
+        self.label_mask = label_mask
+        self.nbr_limit=nbr_limit
+        
+        self.dataset=dataset
+        self.part=part
+        self.transform = transform
+
+    def __getitem__(self, index):
+        img = self.imgs[index]
+        
+        nbr_idxes = self.neighbors_idx[index]
+        if len(nbr_idxes)>self.nbr_limit:
+            each_len = nbr_idxes[:,2]-nbr_idxes[:,1]
+            selected_idx = np.argpartition(-each_len, self.nbr_limit)[:self.nbr_limit]
+            nbr_idxes = np.take(nbr_idxes,selected_idx,axis=0)
+        
+        nbrs_list = []
+        for nbr_tuple in nbr_idxes:
+            each_nbr,mask = nbr_tuple
+            nbr_seg = self.imgs[each_nbr] * mask[::,np.newaxis]
+            nbrs_list.append(nbr_seg)
+
+        if len(nbr_idxes)==0:
+            neighbors = img[np.newaxis,...]
+        else:
+            neighbors = np.stack(nbrs_list)
+
+        if self.transform is not None:
+            img = self.transform(img)
+            neighbors = self.transform(neighbors)
+        img = torch.as_tensor(img)
+        neighbors = torch.as_tensor(neighbors.astype(np.float32))
+
+        if self.part=='test':
+            label = torch.as_tensor(self.labels[index])
+            return img, label, neighbors
+        elif self.dataset=='src':
+            label = torch.as_tensor(self.labels[index])
+            return img, label, neighbors, torch.as_tensor(0)
+        else:
+            if self.labels is not None:
+                label = torch.as_tensor(self.labels[index])
+                label_mask = torch.as_tensor(self.label_mask[index])
+            else:
+                label=label_mask=None
+            return img, label, label_mask, neighbors, torch.as_tensor(1), torch.as_tensor(index)
+    
+
+    def __len__(self):
+        return len(self.imgs)
+    
+    
     
 def load_data_neighbor_v2(args, pseudo_labels=None, pseudo_labels_mask=None): 
+    raise NotImplementedError
     
     THRES = args.nbr_dist_thres
     # nbr_limit=args.nbr_limit
@@ -930,11 +993,18 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None):
             class_dict[y]+=1
     print('Geolife:',dict(sorted(class_dict.items())))
     
-    # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0810_geolifetrain_20neighbor_inter_find_neighbor_perpts_new_min10pts_idxonly_thres%dm.npy'%THRES, allow_pickle=True)
-    # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1128_geolifetrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_filternearest.npy'%THRES, allow_pickle=True)
-    # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1210_geolifetrain_100neighbor_inter_find_neighbor_100pts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
-    nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1220_geolifetrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
-    train_dataset_src = create_single_dataset_idx_v3(train_x, train_y, nbr_idx_tuple, total_trips, pos_trips, dataset='src', nbr_limit=args.nbr_limit)
+    # # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0810_geolifetrain_20neighbor_inter_find_neighbor_perpts_new_min10pts_idxonly_thres%dm.npy'%THRES, allow_pickle=True)
+    # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1128_geolifetrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_filternearest.npy'%THRES, allow_pickle=True)
+    # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1210_geolifetrain_100neighbor_inter_find_neighbor_100pts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
+    # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1220_geolifetrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
+    if args.nbr_data_mode == 'mergemin5':
+        nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0110_geolifetrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_mergemin5.npy'%THRES, allow_pickle=True)
+        train_dataset_src = create_single_dataset_idx_v3(train_x, train_y, nbr_idx_tuple, total_trips, pos_trips, dataset='src', nbr_limit=args.nbr_limit)
+    elif args.nbr_data_mode == 'mergetoori':
+        nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0124_geolifetrain_100neighbor_inter_find_neighbor_perpts_idxonly_thres%dm_mergetoori.npy'%THRES, allow_pickle=True)
+        train_dataset_src = create_single_dataset_idx_v4(train_x, train_y, nbr_idx_tuple, total_trips, pos_trips, dataset='src', nbr_limit=args.nbr_limit)
+    else:
+        raise NotImplementedError
     
     
 
@@ -986,19 +1056,21 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None):
             class_dict[y]+=1
     print('MTL test:',dict(sorted(class_dict.items())))
     
-    # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0810_mtltrain_20neighbor_inter_find_neighbor_perpts_new_min10pts_idxonly_thres%dm.npy'%THRES, allow_pickle=True)
-    # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1128_mtltrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_filternearest.npy'%THRES, allow_pickle=True)
-    # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1210_mtltrain_100neighbor_inter_find_neighbor_100pts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
-    nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1220_mtltrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
+    # # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0810_mtltrain_20neighbor_inter_find_neighbor_perpts_new_min10pts_idxonly_thres%dm.npy'%THRES, allow_pickle=True)
+    # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1128_mtltrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_filternearest.npy'%THRES, allow_pickle=True)
+    # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1210_mtltrain_100neighbor_inter_find_neighbor_100pts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
+    # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1220_mtltrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
+    nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0110_mtltrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_mergemin5.npy'%THRES, allow_pickle=True)
     if pseudo_labels is not None:
         pseudo_labels = np.array(pseudo_labels)
         pseudo_labels_mask = np.array(pseudo_labels_mask)
     train_dataset_tgt = create_single_dataset_idx_v3(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit)
     
-    # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0810_mtltest_20neighbor_inter_find_neighbor_perpts_new_min10pts_idxonly_thres%dm.npy'%THRES, allow_pickle=True)
-    # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1128_mtltest_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_filternearest.npy'%THRES, allow_pickle=True)
-    # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1210_mtltest_100neighbor_inter_find_neighbor_100pts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
-    nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1220_mtltest_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
+    # # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0810_mtltest_20neighbor_inter_find_neighbor_perpts_new_min10pts_idxonly_thres%dm.npy'%THRES, allow_pickle=True)
+    # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1128_mtltest_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_filternearest.npy'%THRES, allow_pickle=True)
+    # # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1210_mtltest_100neighbor_inter_find_neighbor_100pts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
+    # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1220_mtltest_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
+    nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0110_mtltest_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_mergemin5.npy'%THRES, allow_pickle=True)
     test_dataset = create_single_dataset_idx_v3(test_x, test_y, nbr_idx_tuple, total_trips, pos_trips, part='test', dataset='tgt', nbr_limit=args.nbr_limit)
     
 

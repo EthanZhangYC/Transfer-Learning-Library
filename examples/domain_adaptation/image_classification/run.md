@@ -485,7 +485,7 @@ python mcd_neighbor_v3.py \
 --log logs/1211_mcd_freeze_01_10m_featcatsamedim_entpropor0666_meantea095f1_srcce1_ent01_tgtce01_tgtmeanteanomask01_1210new100ptnbr
 
 
-CUDA_VISIBLE_DEVICES=6 \
+CUDA_VISIBLE_DEVICES=7 \
 python mcd_neighbor_v3.py \
 --epochs 30 \
 --batch-size 64 \
@@ -499,12 +499,13 @@ python mcd_neighbor_v3.py \
 --trade-off-pseudo 0.1 \
 --trade-off-consis 0.1 \
 --cat_mode cat_samedim \
---nbr_dist_thres 10 \
+--nbr_dist_thres 20 \
 --nbr_limit 100000 \
 --pseudo_mode entropyproportion \
 --pseudo_ratio 0.666 \
 --loss_mode srcce_ent_tgtce \
---log logs/1217_mcd_freeze_01_10m_featcatsamedim_entpropor0666_srcce1_ent01_tgtce01_1210new100ptnbr
+--nbr_data_mode mergetoori \
+--log logs/0125_mcd_freeze_01_featcatsamedim_entpropor0666_srcce1_ent01_tgtce01_0124newperptnbr20m_mergetoori_correctmtldata
 
 
 CUDA_VISIBLE_DEVICES=8 \
@@ -525,13 +526,13 @@ python mcd_neighbor_v5_attn.py \
 --pseudo_mode entropyproportion \
 --pseudo_ratio 0.666 \
 --loss_mode srcce_ent_tgtce \
---log logs/1216_mcd_freeze_01_10m_entpropor0666_srcce1_ent01_tgtce01_1210new100ptnbr_qkvattn_head2
+--log logs/0124_mcd_freeze_01_entpropor0666_srcce1_ent01_tgtce01_0124newperptnbr20m_qkvattn_head2
 
 
 --cat_mode cat \
 
 
-CUDA_VISIBLE_DEVICES=4 \
+CUDA_VISIBLE_DEVICES=7 \
 python mcd_neighbor_v5_attn.py \
 --epochs 30 \
 --batch-size 64 \
@@ -544,17 +545,17 @@ python mcd_neighbor_v5_attn.py \
 --trade-off-entropy 0.1 \
 --trade-off-pseudo 0.1 \
 --cat_mode cat_samedim \
---nbr_dist_thres 10 \
+--nbr_dist_thres 20 \
 --nbr_limit 100000 \
 --pseudo_mode entropyproportion \
 --pseudo_ratio 0.666 \
 --loss_mode srcce_ent_tgtce \
 --num_head 2 \
---log logs/0124_mcd_freeze_01_10m_entpropor0666_srcce1_ent01_tgtce01_1220newperptnbr_qkvattn_head2_catsamedim_attnoutputnbrfeat_correctqkvdim_correctmtldata
+--log logs/0124_mcd_freeze_01_entpropor0666_srcce1_ent01_tgtce01_0124newperptnbr20m_qkvattn_head2_catsamedim_attnoutputnbrfeat_correctqkvdim_correctmtldata
 
 
 
-CUDA_VISIBLE_DEVICES=2 \
+CUDA_VISIBLE_DEVICES=8 \
 python mcd_neighbor_v4.py \
 --epochs 30 \
 --batch-size 64 \
@@ -567,11 +568,11 @@ python mcd_neighbor_v4.py \
 --trade-off-entropy 0.1 \
 --cat_mode cat \
 --nbr_mode 111 \
---nbr_dist_thres 10 \
+--nbr_dist_thres 20 \
 --nbr_limit 100000 \
---log logs/0124_mcd_1220newperptnbr10m_cat_correctmtldata
+--log logs/0124_mcd_0124newperptnbr20m_cat_correctmtldata
 
-CUDA_VISIBLE_DEVICES=1 \
+CUDA_VISIBLE_DEVICES=8 \
 python mcd_neighbor_v2.py \
 --epochs 30 \
 --batch-size 64 \

@@ -1161,6 +1161,7 @@ if __name__ == '__main__':
     parser.add_argument('--trade-off-consis', default=1., type=float)
     parser.add_argument('--momentum', default=0.9, type=float)
     parser.add_argument('--mean_tea', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument("--nbr_data_mode", type=str, default='mergemin5', help="Where to save logs, checkpoints and debugging images.")
 
 
     args = parser.parse_args()

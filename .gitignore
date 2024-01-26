@@ -132,3 +132,4 @@ trash/*
 examples/domain_adaptation/digits/logs/*
 examples/domain_adaptation/digits/data/*
 logs
+examples/domain_adaptation/image_classification/run.md
