@@ -1165,4 +1165,10 @@ if __name__ == '__main__':
 
 
     args = parser.parse_args()
+    
+    # import resource
+    # rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+    # resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
+
+    torch.set_num_threads(8)
     main(args)
