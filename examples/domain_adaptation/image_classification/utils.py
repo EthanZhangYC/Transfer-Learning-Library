@@ -222,6 +222,8 @@ def load_data(args):
     return train_source_iter, train_tgt_iter, test_loader, train_loader_target
 
 
+
+
 def load_data_multitgt(args):
     # filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
     filename = '/home/yichen/TS2Vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedNAN_5s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_doubletest_0218.pickle'
@@ -963,7 +965,7 @@ def load_data_neighbor_v2(args, pseudo_labels=None, pseudo_labels_mask=None):
     return train_source_iter, train_tgt_iter, test_loader
 
 
-def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None): 
+def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shuffle=True): 
     
     THRES = args.nbr_dist_thres
     # nbr_limit=args.nbr_limit
@@ -1099,15 +1101,19 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None):
     def collate_fn(batch):
         return tuple(zip(*batch))
 
-    sampler = ImbalancedDatasetSampler(train_dataset_src, callback_get_label=get_label_single, num_samples=len(train_dataset_tgt))
+    if shuffle:
+        sampler = ImbalancedDatasetSampler(train_dataset_src, callback_get_label=get_label_single, num_samples=len(train_dataset_tgt))
+    else:
+        sampler=None
+        
     train_loader_source = DataLoader(train_dataset_src, batch_size=min(args.batch_size, len(train_dataset_src)), sampler=sampler, shuffle=False, drop_last=True, collate_fn=collate_fn, num_workers=0)
-    train_loader_target = DataLoader(train_dataset_tgt, batch_size=min(args.batch_size, len(train_dataset_tgt)), shuffle=True, drop_last=True, collate_fn=collate_fn, num_workers=0)
+    train_loader_target = DataLoader(train_dataset_tgt, batch_size=min(args.batch_size, len(train_dataset_tgt)), shuffle=shuffle, drop_last=True, collate_fn=collate_fn, num_workers=0)
 
     train_source_iter = ForeverDataIterator(train_loader_source)
     train_tgt_iter = ForeverDataIterator(train_loader_target)
-    test_loader = DataLoader(test_dataset, batch_size=min(args.batch_size, len(test_dataset)), collate_fn=collate_fn, num_workers=0)
+    test_loader = DataLoader(test_dataset, batch_size=min(args.batch_size, len(test_dataset)), collate_fn=collate_fn, num_workers=0, shuffle=False)
     
-    return train_source_iter, train_tgt_iter, test_loader
+    return train_source_iter, train_tgt_iter, test_loader, train_loader_source, train_loader_target
 
 
 

@@ -412,7 +412,7 @@ python mcd_neighbor_v4.py \
 --num-k 10 \
 --log logs/0221_mcd_01_v4_qkvindividualwithgrad_head8_0124newnbr20m_nk10_correctnbrmean
 
-CUDA_VISIBLE_DEVICES=7 \
+CUDA_VISIBLE_DEVICES=8 \
 python mcd_neighbor_v4.py \
 --epochs 30 \
 --batch-size 16 \
@@ -426,10 +426,10 @@ python mcd_neighbor_v4.py \
 --cat_mode cat \
 --nbr_mode perpt_cat \
 --nbr_dist_thres 20 \
---nbr_limit 100 \
---num_head 8 \
---num-k 10 \
---log logs/0226_mcd_01_v4_perptcat_head8_0124newnbr20m_nk10_nbrlimit100
+--nbr_limit 10 \
+--num_head 2 \
+--num-k 1 \
+--log logs/0227_mcd_01_v4_perptcat_head8_0124newnbr20m_nk10_nbrlimit10
 
 
 
@@ -452,27 +452,14 @@ python mcd_neighbor_v4.py \
 
 
 
-CUDA_VISIBLE_DEVICES=9 \
-python mcd_neighbor_v5_attn.py \
---epochs 30 \
---batch-size 64 \
--i 294 \
---seed 42 \
---lr 5e-4 \
---wd 1e-4 \
---interpolatedlinear \
---trade-off 1 \
---trade-off-entropy 0.1 \
---trade-off-pseudo 0.1 \
---cat_mode cat_samedim \
---nbr_dist_thres 20 \
---nbr_limit 100000 \
---pseudo_mode entropyproportion \
---pseudo_ratio 0.666 \
---loss_mode srcce_ent_tgtce \
---num_head 2 \
---nbr_data_mode mergetoori \
---log logs/0131_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_qkvattn_head2_catsamedim_attnoutputnbrfeat_correctqkvdim_correctmergetoori20mmin50
+
+
+
+
+
+
+
+
 
 CUDA_VISIBLE_DEVICES=9 \
 python mcd_neighbor_v5_attn.py \
@@ -516,5 +503,89 @@ python mcd_neighbor_v5_attn.py \
 --loss_mode srcce_ent_tgtce \
 --num_head 2 \
 --log logs/0131_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_qkvattn_head2_catsamedim_attnoutputnbrfeat_correctqkvdim_0124newnbr20m
+
+
+
+############################################################################################################
+
+
+
+
+
+# per-pt cat
+
+CUDA_VISIBLE_DEVICES=8 \
+python mcd_neighbor_v5_attn.py \
+--epochs 100 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode perpt_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--loss_mode srcce_ent_tgtce \
+--log logs/0312_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_perptcat_0124newnbr20m_limit10_nbrgrad
+
+
+# qkv cat
+
+CUDA_VISIBLE_DEVICES=5 \
+python mcd_neighbor_v5_attn.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode srcce_ent_tgtce \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode qkv_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 8 \
+--log logs/0312_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_qkvcat_0124newnbr20m_limit10_nbrgrad_head8
+
+
+CUDA_VISIBLE_DEVICES=8 \
+python mcd_neighbor_v5_attn.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode srcce_ent_tgtce \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode qkv_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--nbr_data_mode mergetoori \
+--log logs/0312_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_qkvcat_mergetoori_limit10_nbrgrad
+
+
+--nbr_mode qkv_cat_maskboth \
 
 

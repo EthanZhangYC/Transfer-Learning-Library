@@ -182,21 +182,6 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
         # if i>5:
         #     break
 
-        # x_ori_src, labels_src, x_ori_src_neighbor, labels_domain_src = next(train_src_iter) 
-        # x_ori_tgt, x_ori_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_tgt_iter)
-
-        # x_ori_src, labels_src, labels_domain_src = torch.stack(x_ori_src), torch.stack(labels_src), torch.stack(labels_domain_src)
-        # x_ori_tgt, idx_tgt, labels_domain_tgt = torch.stack(x_ori_tgt), torch.stack(idx_tgt), torch.stack(labels_domain_tgt)
-        # x_ori_src, x_ori_tgt = x_ori_src[:,:,2:], x_ori_tgt[:,:,2:] # time, dist, v, a, jerk, bearing, is_real
-        # x_ori_src, x_ori_tgt, labels_s, idx_tgt = x_ori_src.to(device), x_ori_tgt.to(device), labels_src.to(device), idx_tgt.to(device)
-        
-        # neighbor_idx_src = [neighbor.shape[0] for neighbor in x_ori_src_neighbor]
-        # neighbor_idx_src = np.insert(np.cumsum(neighbor_idx_src),0,0)
-        # x_ori_src_neighbor = torch.cat(x_ori_src_neighbor)
-        
-        # neighbor_idx_tgt = [neighbor.shape[0] for neighbor in x_ori_tgt_neighbor]
-        # neighbor_idx_tgt = np.insert(np.cumsum(neighbor_idx_tgt),0,0)
-        # x_ori_tgt_neighbor = torch.cat(x_ori_tgt_neighbor)
         
         x_ori_src, labels_s, x_ori_src_neighbor, labels_domain_src = next(train_src_iter) 
         x_ori_tgt, _, _, x_ori_tgt_neighbor, labels_domain_tgt, idx_tgt = next(train_tgt_iter)
