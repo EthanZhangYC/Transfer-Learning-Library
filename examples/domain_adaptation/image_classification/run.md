@@ -562,7 +562,14 @@ python mcd_neighbor_v5_attn.py \
 --log logs/0312_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_qkvcat_0124newnbr20m_limit10_nbrgrad_head8
 
 
-CUDA_VISIBLE_DEVICES=8 \
+
+--nbr_data_mode mergetoori \
+
+--nbr_mode qkv_cat_maskboth \
+
+
+
+CUDA_VISIBLE_DEVICES=0 \
 python mcd_neighbor_v5_attn.py \
 --epochs 50 \
 --batch-size 64 \
@@ -571,21 +578,16 @@ python mcd_neighbor_v5_attn.py \
 --lr 5e-4 \
 --wd 1e-4 \
 --interpolatedlinear \
---loss_mode srcce_ent_tgtce \
+--loss_mode v1 \
 --trade-off 1 \
 --trade-off-entropy 0.1 \
 --trade-off-pseudo 0.1 \
---nbr_mode qkv_cat \
+--trade-off-consis 0.1 \
+--nbr_mode qkv_individual_add \
 --nbr_dist_thres 20 \
 --nbr_limit 10 \
 --nbr_grad \
 --pseudo_mode entropyproportion \
 --pseudo_ratio 0.666 \
 --num_head 2 \
---nbr_data_mode mergetoori \
---log logs/0312_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_qkvcat_mergetoori_limit10_nbrgrad
-
-
---nbr_mode qkv_cat_maskboth \
-
-
+--log logs/0315_mcd_v5_freeze_01_01_01_entpropor0666_lossV1_qkvindividual_0124newnbr20m_limit10_nbrgrad

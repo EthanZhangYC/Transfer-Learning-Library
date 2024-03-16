@@ -102,25 +102,27 @@ def main(args: argparse.Namespace):
     # F2_ori = models.Classifier_clf(input_dim=64).to(device)
     if 'cat_samedim' in args.nbr_mode:
         F1 = models.Classifier_clf_samedim(input_dim=64).to(device)
+        F2 = models.Classifier_clf_samedim(input_dim=64).to(device)
         if args.mean_tea:
             F1_t = models.Classifier_clf_samedim(input_dim=64).to(device)
         else:
             F1_t = None
     elif 'cat' in args.nbr_mode:
         F1 = models.Classifier_clf(input_dim=64*2).to(device)
+        F2 = models.Classifier_clf(input_dim=64*2).to(device)
         if args.mean_tea:
             F1_t = models.Classifier_clf(input_dim=64*2).to(device)
         else:
             F1_t = None
     elif 'add' in args.nbr_mode:
         F1 = models.Classifier_clf(input_dim=64).to(device)
+        F2 = models.Classifier_clf(input_dim=64).to(device)
         if args.mean_tea:
             F1_t = models.Classifier_clf(input_dim=64).to(device)
         else:
             F1_t = None
     else:
         raise NotImplementedError
-    # F2 = models.Classifier_clf(input_dim=64*2).to(device)
     # F1 = models.ViT(use_auxattn=True, double_attn=True).to(device)
     # F2 = models.ViT(use_auxattn=True, double_attn=True).to(device)
     attn_net = models.AttnNet().to(device)
@@ -172,7 +174,7 @@ def main(args: argparse.Namespace):
     optimizer_g = Adam(G.parameters(), args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
     optimizer_f = Adam([
         {"params": F1.parameters()},
-        # {"params": F2.parameters()},
+        {"params": F2.parameters()},
         {"params": multihead_attn.parameters()},
         {"params": attn_net.parameters()},
     ], args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
@@ -210,16 +212,16 @@ def main(args: argparse.Namespace):
     best_epoch = 0
     for epoch in range(args.epochs):
         # train for one epoch
-        train(train_source_iter, train_target_iter, G, F1, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t, multihead_attn)
+        train(train_source_iter, train_target_iter, G, F1, F2, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t, multihead_attn)
 
         # evaluate on validation set
-        results = validate(val_loader, G, F1, attn_net, args, F1_t, multihead_attn)
+        results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn)
 
         # remember best acc@1 and save checkpoint
         torch.save({
             'G': G.state_dict(),
             'F1': F1.state_dict(),
-            # 'F2': F2.state_dict(),
+            'F2': F2.state_dict(),
             'multihead_attn': multihead_attn.state_dict(),
             'attnnet':attn_net.state_dict()
         }, logger.get_checkpoint_path('latest'))
@@ -281,7 +283,7 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 
-def softmax_mse_loss(input_logits, target_logits, masks):
+def softmax_mse_loss(input_logits, target_logits, masks=None):
     """Takes softmax on both sides and returns MSE loss
     Note:
     - Returns the sum over all examples. Divide by the batch size afterwards
@@ -293,11 +295,14 @@ def softmax_mse_loss(input_logits, target_logits, masks):
     target_softmax = F.softmax(target_logits, dim=1)
     num_classes = input_logits.size()[1]
     # return F.mse_loss(input_softmax, target_softmax, size_average=False) / num_classes / target_logits.shape[0]
-    return torch.sum(torch.mean(F.mse_loss(input_softmax, target_softmax, reduce=False), dim=1) * (~masks)) / torch.sum(~masks)
+    if masks is not None:
+        return torch.sum(torch.mean(F.mse_loss(input_softmax, target_softmax, reduce=False), dim=1) * (~masks)) / torch.sum(~masks)
+    else:
+        return torch.mean(F.mse_loss(input_softmax, target_softmax, reduce=False))
 
 
 def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterator,
-          G: nn.Module, F1: ImageClassifierHead, attn_net: nn.Module,
+          G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net: nn.Module,
           optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t, multihead_attn):
     batch_time = AverageMeter('Time', ':3.1f')
     data_time = AverageMeter('Data', ':3.1f')
@@ -319,7 +324,8 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
     F1.train()
     if args.mean_tea:
         F1_t.eval()
-    # F2.train()
+    if 'individual' in args.nbr_mode:
+        F2.train()
     attn_net.train()
     multihead_attn.train()
 
@@ -494,7 +500,48 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
         
         
         aux_feat=None
-        if 'qkv' in args.nbr_mode:
+        if 'individual' in args.nbr_mode:
+            g_s = g_s.unsqueeze(1)
+            g_t = g_t.unsqueeze(1)
+            
+            # with torch.no_grad():
+            feat_src_avgpool_neighbor_list=[]
+            for neighbor_idx,_ in enumerate(neighbor_idx_src):
+                if neighbor_idx==neighbor_idx_src.shape[0]-1:
+                    break
+                key = value = feat_src_avgpool_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
+                query = g_s[neighbor_idx] # might change to dist?
+                attn_output_neighbors_s, attn_output_weights_s = multihead_attn(query, key, value)
+                feat_src_avgpool_neighbor_list.append(attn_output_neighbors_s)
+            feat_src_avgpool_neighbors = torch.stack(feat_src_avgpool_neighbor_list).squeeze(1)
+                
+            feat_tgt_avgpool_neighbor_list=[]
+            for neighbor_idx,_ in enumerate(neighbor_idx_tgt):
+                if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
+                    break
+                key = value = feat_tgt_avgpool_neighbor[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]].to(device)
+                query = g_t[neighbor_idx]
+                attn_output_neighbors_t, attn_output_weights_t = multihead_attn(query, key, value)
+                feat_tgt_avgpool_neighbor_list.append(attn_output_neighbors_t)
+            feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list).squeeze(1)
+            
+            g_s = g_s.squeeze(1)
+            g_t = g_t.squeeze(1)
+            
+            g_s1 = g_s
+            g_t1 = g_t
+            g_s2 = feat_src_avgpool_neighbors
+            g_t2 = feat_tgt_avgpool_neighbors
+            
+            g1 = torch.cat((g_s1, g_t1), dim=0)
+            g2 = torch.cat((g_s2, g_t2), dim=0)
+            y_1 = F1(g1, aux_feat)
+            y_2 = F2(g2, aux_feat)
+            y_1, y_2 = F.softmax(y_1, dim=1), F.softmax(y_2, dim=1)
+            y1_s, y1_t = y_1.chunk(2, dim=0)
+            y2_s, y2_t = y_2.chunk(2, dim=0)
+                
+        elif 'qkv' in args.nbr_mode:
             g_s = g_s.unsqueeze(1)
             g_t = g_t.unsqueeze(1)
         
@@ -542,6 +589,8 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                 g_t = g_t + feat_tgt_avgpool_neighbors
             g = torch.cat((g_s, g_t), dim=0)
             y_1 = F1(g, aux_feat)
+            y1 = F.softmax(y1, dim=1)
+            y1_s, y1_t = y_1.chunk(2, dim=0)
         
         elif 'perpt' in args.nbr_mode:
             feat_src_avgpool_neighbor_list=[]
@@ -579,7 +628,8 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
             g_t = torch.mean(g_t, dim=1)
             g = torch.cat((g_s, g_t), dim=0)
             y_1 = F1(g, aux_feat)
-            # y_2 = F2(g, aux_feat)
+            y1 = F.softmax(y1, dim=1)
+            y1_s, y1_t = y_1.chunk(2, dim=0)
         
         else:
             feat_src_avgpool_neighbor_list=[]
@@ -610,12 +660,12 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
         
         
         
-        # y_1 = F1(g, aux_feat)
-        # # y_2 = F2(g, aux_feat)
-        y1_s, y1_t = y_1.chunk(2, dim=0)
-        # y2_s, y2_t = y_2.chunk(2, dim=0)
-        # y1_t, y2_t = F.softmax(y1_t, dim=1), F.softmax(y2_t, dim=1)
-        y1_t = F.softmax(y1_t, dim=1)
+        # # y_1 = F1(g, aux_feat)
+        # # # y_2 = F2(g, aux_feat)
+        # y1_s, y1_t = y_1.chunk(2, dim=0)
+        # # y2_s, y2_t = y_2.chunk(2, dim=0)
+        # # y1_t, y2_t = F.softmax(y1_t, dim=1), F.softmax(y2_t, dim=1)
+        # y1_t = F.softmax(y1_t, dim=1)
         
         if args.mean_tea:
             y_tea = F1_t(g, aux_feat)
@@ -650,6 +700,14 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                     torch.sum(F.cross_entropy(y1_t, labels_t, reduce=False) * labels_t_mask) / torch.sum(labels_t_mask) * args.trade_off_pseudo + \
                         softmax_mse_loss(y1_t, y_t_tea) * args.trade_off_consis
 
+        # double src CE + tgt entropy + tgt pseudo CE + 2head consistency
+        elif args.loss_mode=='v1':
+            loss_srcce = 0.5 * (F.cross_entropy(y1_s, labels_s) + F.cross_entropy(y2_s, labels_s))
+            loss_ent = 0.5 * args.trade_off_entropy * (entropy(y1_t) + entropy(y2_t))
+            loss_tgtce = 0.5 * args.trade_off_pseudo * (torch.sum(F.cross_entropy(y1_t, labels_t, reduce=False) * labels_t_mask) / torch.sum(labels_t_mask) + torch.sum(F.cross_entropy(y2_t, labels_t, reduce=False) * labels_t_mask) / torch.sum(labels_t_mask))
+            loss_consistency = softmax_mse_loss(y_1, y_2) * args.trade_off_consis
+            loss = loss_srcce + loss_ent  + loss_tgtce + loss_consistency
+        
         else:
             loss_srcce = F.cross_entropy(y1_s, labels_s)
             loss_ent = entropy(y1_t) * args.trade_off_entropy
@@ -672,7 +730,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
             progress.display(i)
 
 
-def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, F1_t, multihead_attn) -> Tuple[float, float]:
+def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, F1_t, multihead_attn) -> Tuple[float, float]:
     batch_time = AverageMeter('Time', ':6.3f')
     top1_1 = AverageMeter('Acc_1', ':6.2f')
     top1_2 = AverageMeter('Acc_2', ':6.2f')
@@ -686,8 +744,8 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn
     F1.eval()
     if args.mean_tea:
         F1_t.eval()
-
-    # F2.eval()
+    if 'individual' in args.nbr_mode:
+        F2.eval()
     attn_net.eval()
     multihead_attn.eval()
 
@@ -765,7 +823,34 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn
                 feat_neighbors = torch.cat(tmp_list,dim=0)
                 feat_neighbors_mask = torch.cat(mask_list,dim=0)
             
-            if 'qkv' in args.nbr_mode:
+            
+            
+            aux_feat = None
+            if 'individual' in args.nbr_mode:
+                g = g.unsqueeze(1)
+                feat_neighbor_list=[]
+                for neighbor_idx,_ in enumerate(neighbor_idx_src):
+                    if neighbor_idx==neighbor_idx_src.shape[0]-1:
+                        break
+                    key = value = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
+                    query = g[neighbor_idx]
+                    attn_output_neighbors, attn_output_weights = multihead_attn(query, key, value)
+                    feat_neighbor_list.append(attn_output_neighbors)
+                feat_neighbors = torch.stack(feat_neighbor_list).squeeze(1)
+                g = g.squeeze(1)
+
+                g1 = g
+                g2 = feat_neighbors
+
+                y1 = F1(g1, aux_feat)
+                y2 = F2(g2, aux_feat)
+                acc2, = accuracy(y2, labels)
+                top1_2.update(acc2.item(), bs)
+                _, preds2 = torch.max(y2, 1)
+                for t, p in zip(labels.view(-1), preds2.view(-1)):
+                    confusion_matrix2[t.long(), p.long()] += 1
+            
+            elif 'qkv' in args.nbr_mode:
                 g = g.unsqueeze(1)
                 feat_neighbor_list=[]
                 for neighbor_idx,_ in enumerate(neighbor_idx_src):
@@ -781,6 +866,7 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn
                     g = torch.cat([g,feat_neighbors],dim=1)
                 else:
                     g = g + feat_neighbors
+                y1 = F1(g, aux_feat)
                 
             elif 'perpt' in args.nbr_mode:
                 feat_neighbor_list=[]
@@ -801,8 +887,7 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn
                 else:
                     g = g + feat_neighbors
                 g = torch.mean(g, dim=1)
-                # y1 = F1(g, aux_feat)
-                # y2 = F2(g, aux_feat)
+                y1 = F1(g, aux_feat)
         
             else:
                 feat_neighbor_list=[]
@@ -818,17 +903,13 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, attn
                     g = torch.cat([g,feat_neighbors],dim=1)
                 else:
                     g = g + feat_neighbors
+                y1 = F1(g, aux_feat)
                     
             # query = g
             # key = value = feat_neighbors
             # feat_neighbors, attn_output_weights = multihead_attn(query, key, value)
             # # g = attn_output   
 
-
-
-            aux_feat = None
-            y1 = F1(g, aux_feat)
-            # y1, y2 = F1(g, aux_feat), F2(g, aux_feat)
 
             # measure accuracy and record loss
             acc1, = accuracy(y1, labels)
