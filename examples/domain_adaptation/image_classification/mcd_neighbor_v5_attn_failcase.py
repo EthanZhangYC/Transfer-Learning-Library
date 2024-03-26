@@ -56,11 +56,11 @@ def main(args: argparse.Namespace):
         G = models.TSEncoder_new(input_dims=7+4).to(device)
     else:
         G = models.TSEncoder_new().to(device)
-    G_ori = models.TSEncoder_new().to(device)
+    # G_ori = models.TSEncoder_new().to(device)
     classifier_features_dim=64
     num_classes = 4
 
-    F1_ori = models.Classifier_clf(input_dim=64).to(device)    
+    # F1_ori = models.Classifier_clf(input_dim=64).to(device)    
     if 'cat_samedim' in args.nbr_mode:
         raise NotImplementedError
         F1 = models.Classifier_clf_samedim(input_dim=64).to(device)
@@ -89,138 +89,144 @@ def main(args: argparse.Namespace):
             F1_t = None
     else:
         raise NotImplementedError
-    # F1 = models.ViT(use_auxattn=True, double_attn=True).to(device)
-    # F2 = models.ViT(use_auxattn=True, double_attn=True).to(device)
     attn_net = models.AttnNet().to(device)
-    
     multihead_attn = nn.MultiheadAttention(64, num_heads=args.num_head, batch_first=True).to(device)
     nbr_label_encoder = models.LabelEncoder(input_dim=4, embed_dim=args.nbr_label_embed_dim).to(device)
 
     
     
-    ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/mcd_1015/checkpoints/best.pth'
-    ckpt = torch.load(ckpt_dir, map_location='cuda:0')
-    G_ori.load_state_dict(ckpt['G'], strict=False)
-    if args.nbr_label_mode == 'combine_each_pt':
-        del ckpt['G']['input_fc.weight']
-        del ckpt['G']['input_fc.bias']
-    G.load_state_dict(ckpt['G'], strict=False)
-    F1_ori.load_state_dict(ckpt['F2'])#, strict=False)
+    # ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/mcd_1015/checkpoints/best.pth'
+    # ckpt = torch.load(ckpt_dir, map_location='cuda:0')
+    # G_ori.load_state_dict(ckpt['G'], strict=False)
+    # if args.nbr_label_mode == 'combine_each_pt':
+    #     del ckpt['G']['input_fc.weight']
+    #     del ckpt['G']['input_fc.bias']
+    # G.load_state_dict(ckpt['G'], strict=False)
+    # F1_ori.load_state_dict(ckpt['F2'])#, strict=False)
     
-    if 'cat_samedim' in args.nbr_mode:
-        F1.load_state_dict(ckpt['F2'], strict=False)
-        for name,param in F1.named_parameters():
-            if 'fc' in name:
-                param.requires_grad = False 
+    # if 'cat_samedim' in args.nbr_mode:
+    #     F1.load_state_dict(ckpt['F2'], strict=False)
+    #     for name,param in F1.named_parameters():
+    #         if 'fc' in name:
+    #             param.requires_grad = False 
         
-    if args.mean_tea:
-        for param_s, param_t in zip(F1.parameters(), F1_t.parameters()):
-            param_t.data.copy_(param_s.data) 
-            param_t.requires_grad=False
+    # if args.mean_tea:
+    #     for param_s, param_t in zip(F1.parameters(), F1_t.parameters()):
+    #         param_t.data.copy_(param_s.data) 
+    #         param_t.requires_grad=False
     
-    for param in G.parameters():
-        param.requires_grad = False 
+    # for param in G.parameters():
+    #     param.requires_grad = False 
     
-    _,_,_,train_loader_target = utils.load_data(args)
-    # pseudo_labels,pseudo_labels_mask = get_pseudo_labels(train_loader_target, G, F1_ori, args)
-    pseudo_labels,pseudo_labels_mask = eval('get_pseudo_labels_by_'+args.pseudo_mode)(train_loader_target, G_ori, F1_ori, args)
-    # if args.nbr_pseudo:
-    #     _,_, val_loader, train_loader_source, train_loader_target = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask, shuffle=False)
-    #     pseudo_labels_tgttrain, _ = get_pseudo_labels_by_confidence_nbr(train_loader_target, G, F1_ori, args)
-    #     pseudo_labels_tgttest, _ = get_pseudo_labels_by_confidence_nbr(val_loader, G, F1_ori, args)
-    #     all_pseudo_labels_nbr = [pseudo_labels_tgttrain,pseudo_labels_tgttest]
-    #     train_source_iter, train_target_iter, val_loader,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask, all_pseudo_labels_nbr=all_pseudo_labels_nbr)
-    # else:
-    train_source_iter, train_target_iter, val_loader,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
-    del G_ori, F1_ori
+    # _,_,_,train_loader_target = utils.load_data(args)
+    # pseudo_labels,pseudo_labels_mask = eval('get_pseudo_labels_by_'+args.pseudo_mode)(train_loader_target, G_ori, F1_ori, args)
+    pseudo_labels=pseudo_labels_mask=None
+    # train_source_iter, train_target_iter, val_loader,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
+    # del G_ori, F1_ori
     
 
-    # define optimizer
-    # the learning rate is fixed according to origin paper
-    # optimizer_g = SGD(G.parameters(), lr=args.lr, weight_decay=0.0005)
-    # optimizer_f = SGD([
+    # optimizer_g = Adam(G.parameters(), args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
+    # optimizer_f = Adam([
     #     {"params": F1.parameters()},
     #     {"params": F2.parameters()},
-    # ], momentum=0.9, lr=args.lr, weight_decay=0.0005)
-    optimizer_g = Adam(G.parameters(), args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
-    optimizer_f = Adam([
-        {"params": F1.parameters()},
-        {"params": F2.parameters()},
-        {"params": multihead_attn.parameters()},
-        {"params": attn_net.parameters()},
-        {"params": nbr_label_encoder.parameters()},
-    ], args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
+    #     {"params": multihead_attn.parameters()},
+    #     {"params": attn_net.parameters()},
+    #     {"params": nbr_label_encoder.parameters()},
+    # ], args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
    
 
-    # resume from the best checkpoint
-    if args.phase != 'train':
-        checkpoint = torch.load(logger.get_checkpoint_path('best'), map_location='cpu')
-        G.load_state_dict(checkpoint['G'])
-        F1.load_state_dict(checkpoint['F1'])
-        F2.load_state_dict(checkpoint['F2'])
+    # # resume from the best checkpoint
+    # if args.phase != 'train':
+    #     checkpoint = torch.load(logger.get_checkpoint_path('best'), map_location='cpu')
+    #     G.load_state_dict(checkpoint['G'])
+    #     F1.load_state_dict(checkpoint['F1'])
+    #     F2.load_state_dict(checkpoint['F2'])
 
-    # analysis the model
-    if args.phase == 'analysis':
-        # extract features from both domains
-        feature_extractor = nn.Sequential(G, F1.pool_layer).to(device)
-        source_feature = collect_feature(train_source_loader, feature_extractor, device)
-        target_feature = collect_feature(train_target_loader, feature_extractor, device)
-        # plot t-SNE
-        tSNE_filename = osp.join(logger.visualize_directory, 'TSNE.pdf')
-        tsne.visualize(source_feature, target_feature, tSNE_filename)
-        print("Saving t-SNE to", tSNE_filename)
-        # calculate A-distance, which is a measure for distribution discrepancy
-        A_distance = a_distance.calculate(source_feature, target_feature, device)
-        print("A-distance =", A_distance)
-        return
+    # # analysis the model
+    # if args.phase == 'analysis':
+    #     # extract features from both domains
+    #     feature_extractor = nn.Sequential(G, F1.pool_layer).to(device)
+    #     source_feature = collect_feature(train_source_loader, feature_extractor, device)
+    #     target_feature = collect_feature(train_target_loader, feature_extractor, device)
+    #     # plot t-SNE
+    #     tSNE_filename = osp.join(logger.visualize_directory, 'TSNE.pdf')
+    #     tsne.visualize(source_feature, target_feature, tSNE_filename)
+    #     print("Saving t-SNE to", tSNE_filename)
+    #     # calculate A-distance, which is a measure for distribution discrepancy
+    #     A_distance = a_distance.calculate(source_feature, target_feature, device)
+    #     print("A-distance =", A_distance)
+    #     return
 
-    if args.phase == 'test':
-        acc1 = validate(test_loader, G, F1, F2, args)
-        print(acc1)
-        return
+    # if args.phase == 'test':
+    #     acc1 = validate(test_loader, G, F1, F2, args)
+    #     print(acc1)
+    #     return
 
-    # start training
-    best_acc1 = 0.
-    best_results = None
-    best_epoch = 0
-    for epoch in range(args.epochs):
-        # train for one epoch
-        train(train_source_iter, train_target_iter, G, F1, F2, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t, multihead_attn, nbr_label_encoder)
+    filename='v1'
+    ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/0312_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_qkvcat_0124newnbr20m_limit100_nbrgrad/checkpoints/best.pth'
+    ckpt = torch.load(ckpt_dir, map_location='cuda:0')
+    G.load_state_dict(ckpt['G'])#, strict=False)
+    F1.load_state_dict(ckpt['F1'])#, strict=False)
+    multihead_attn.load_state_dict(ckpt['multihead_attn'])#, strict=False)
+    args.nbr_mode="qkv_cat"
+    args.nbr_limit=100
+    print(filename, args.nbr_mode)
+    train_source_iter, train_target_iter, val_loader,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
+    results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn, nbr_label_encoder, filename=filename)
+    print('---------------------')
+    
+    filename='v2'
+    ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/0312_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_perptcat_0124newnbr20m_limit10_nbrgrad/checkpoints/best.pth'
+    ckpt = torch.load(ckpt_dir, map_location='cuda:0')
+    G.load_state_dict(ckpt['G'])#, strict=False)
+    F1.load_state_dict(ckpt['F1'])#, strict=False)
+    args.nbr_mode="perpt_cat"
+    args.nbr_limit=10
+    print(filename, args.nbr_mode)
+    train_source_iter, train_target_iter, val_loader,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
+    results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn, nbr_label_encoder, filename=filename)
+    print('---------------------')
+    
+    
+    
+    # # start training
+    # best_acc1 = 0.
+    # best_results = None
+    # best_epoch = 0
+    # for epoch in range(args.epochs):
+    #     # train for one epoch
+    #     train(train_source_iter, train_target_iter, G, F1, F2, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t, multihead_attn, nbr_label_encoder)
 
-        # evaluate on validation set
-        results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn, nbr_label_encoder)
+    #     # evaluate on validation set
+    #     results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn, nbr_label_encoder)
 
-        # remember best acc@1 and save checkpoint
-        torch.save({
-            'G': G.state_dict(),
-            'F1': F1.state_dict(),
-            'F2': F2.state_dict(),
-            'multihead_attn': multihead_attn.state_dict(),
-            'attnnet':attn_net.state_dict(),
-            'nbr_label_encoder':nbr_label_encoder
-        }, logger.get_checkpoint_path('latest'))
-        if max(results) > best_acc1:
-            shutil.copy(logger.get_checkpoint_path('latest'), logger.get_checkpoint_path('best'))
-            best_acc1 = max(results)
-            best_results = results
-            best_epoch = epoch
-        print("best_acc1 = {:3.1f} ({}), results = {}".format(best_acc1, best_epoch, best_results))
+    #     # remember best acc@1 and save checkpoint
+    #     torch.save({
+    #         'G': G.state_dict(),
+    #         'F1': F1.state_dict(),
+    #         'F2': F2.state_dict(),
+    #         'multihead_attn': multihead_attn.state_dict(),
+    #         'attnnet':attn_net.state_dict(),
+    #         'nbr_label_encoder':nbr_label_encoder
+    #     }, logger.get_checkpoint_path('latest'))
+    #     if max(results) > best_acc1:
+    #         shutil.copy(logger.get_checkpoint_path('latest'), logger.get_checkpoint_path('best'))
+    #         best_acc1 = max(results)
+    #         best_results = results
+    #         best_epoch = epoch
+    #     print("best_acc1 = {:3.1f} ({}), results = {}".format(best_acc1, best_epoch, best_results))
         
-        if args.pseudo_every_epoch:
-            _,_,_,train_loader_target = utils.load_data(args)
-            pseudo_labels,pseudo_labels_mask = eval('get_pseudo_labels_by_'+args.pseudo_mode)(train_loader_target, G, F1, args)
-            train_source_iter, train_target_iter, val_loader,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
+    #     if args.pseudo_every_epoch:
+    #         _,_,_,train_loader_target = utils.load_data(args)
+    #         pseudo_labels,pseudo_labels_mask = eval('get_pseudo_labels_by_'+args.pseudo_mode)(train_loader_target, G, F1, args)
+    #         train_source_iter, train_target_iter, val_loader,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
 
 
-    # evaluate on test set
-    checkpoint = torch.load(logger.get_checkpoint_path('best'), map_location='cpu')
-    G.load_state_dict(checkpoint['G'])
-    F1.load_state_dict(checkpoint['F1'])
-    # F2.load_state_dict(checkpoint['F2'])
-    # results = validate(test_loader, G, F1, F2, args)
-    # print("test_acc1 = {:3.1f}".format(max(results)))
-
-    logger.close()
+    # # evaluate on test set
+    # checkpoint = torch.load(logger.get_checkpoint_path('best'), map_location='cpu')
+    # G.load_state_dict(checkpoint['G'])
+    # F1.load_state_dict(checkpoint['F1'])
+    # logger.close()
 
 
 class Attention(nn.Module):
@@ -741,7 +747,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
             progress.display(i)
 
 
-def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder) -> Tuple[float, float]:
+def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, filename) -> Tuple[float, float]:
     batch_time = AverageMeter('Time', ':6.3f')
     top1_1 = AverageMeter('Acc_1', ':6.2f')
     top1_2 = AverageMeter('Acc_2', ':6.2f')
@@ -776,23 +782,16 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
     for k,v in label_dict.items():
         idx_dict[v]=k
 
+    wrong_list = {0: [], 1: [], 2: [], 3: []}
     with torch.no_grad():
         end = time.time()
         for i, data in enumerate(val_loader):
             # if i>5:
             #     break
             
-            # images, target = data[:2]
-            # images = images.to(device)
-            # target = target.to(device)
-            
-            # x, labels, neighbors, dist_neighbors = data
-            # x, labels, neighbors, masks = data
-            # if args.nbr_label_mode == 'separate_input':
             x, labels, neighbors, neighbor_labels = data
-            neighbor_labels = torch.stack(neighbor_labels).to(device)
-            # else:
-            #     x, labels, neighbors, neighbor_labels = data
+            if neighbor_labels[0] is not None:
+                neighbor_labels = torch.stack(neighbor_labels).to(device)
             x, labels = torch.stack(x), torch.stack(labels)
             x, labels = x.to(device), labels.to(device)
             bs = x.shape[0]
@@ -807,7 +806,6 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
                 _,_,g,_,_,_,_ = G(x)
             else:
                 _,g,_,_,_,_,_ = G(x)
-            # aux_feat = torch.stack([images[:,:,0],images[:,:,-1]], axis=2)
             
             if "perpt" not in args.nbr_mode:
                 n_iter = neighbors.shape[0]//bs
@@ -933,11 +931,6 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
                     g = g + feat_neighbors
                 y1 = F1(g, aux_feat)
                     
-            # query = g
-            # key = value = feat_neighbors
-            # feat_neighbors, attn_output_weights = multihead_attn(query, key, value)
-            # # g = attn_output   
-
 
             # measure accuracy and record loss
             acc1, = accuracy(y1, labels)
@@ -947,6 +940,11 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
             top1_1.update(acc1.item(), bs)
             # top1_2.update(acc2.item(), bs)
             
+            hard_y = torch.argmax(y1,dim=1)
+            diff_ids = torch.nonzero(hard_y != labels).cpu()
+            for diff_id in diff_ids:
+                tmp_label = labels[diff_id].item()
+                wrong_list[tmp_label].append((diff_id+i*args.batch_size).item())
             
             _, preds1 = torch.max(y1, 1)
             # _, preds2 = torch.max(y2, 1)
@@ -961,6 +959,8 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
 
             if i % args.print_freq == 0:
                 progress.display(i)
+                
+        np.save("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase/%s"%filename, np.array(wrong_list))
         
         if top1_1.avg > top1_2.avg:
             confusion_matrix = confusion_matrix1
@@ -982,456 +982,7 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
 
 
 
-def get_pseudo_labels_by_threshold(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, args: argparse.Namespace):
-    G.eval()
-    F1.eval()
 
-    THRESHOLD=args.pseudo_thres
-    y_list=[]
-    mask_list=[]
-    with torch.no_grad():
-        for i, data in enumerate(val_loader):
-            images = data[0]
-            images = images.to(device)
-            _,g,_,_,_,_,_ = G(images)
-            y = F1(g, None)
-            
-            max_prob,_ = torch.max(F.softmax(y),dim=1)
-            mask = (max_prob >= THRESHOLD).tolist()
-            y = torch.argmax(y,dim=1).tolist()
-            
-            y_list+=y
-            mask_list+=mask
-            
-    return y_list,mask_list
-
-def get_pseudo_labels_by_proportion(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, args: argparse.Namespace):
-    G.eval()
-    F1.eval()
-
-    # THRESHOLD=args.pseudo_thres
-    y_list=[]
-    per_class_dict={0:[],1:[],2:[],3:[]}
-    cnt = 0
-    with torch.no_grad():
-        for i, data in enumerate(val_loader):
-            images = data[0]
-            images = images.to(device)
-            _,g,_,_,_,_,_ = G(images)
-            y = F1(g, None)
-            
-            max_prob,_ = torch.max(F.softmax(y),dim=1)
-            # mask = (max_prob >= THRESHOLD).tolist()
-            y = torch.argmax(y,dim=1).tolist()
-            
-            cnt += images.shape[0]
-            y_list+=y
-            # mask_list+=mask
-            
-            max_prob = max_prob.tolist()
-            # pseudo_class = pseudo_class.tolist()
-            for idx,prob in enumerate(max_prob):
-                per_class_dict[y[idx]].append((i*args.batch_size+idx, prob))
-            
-            
-    mask_list = torch.zeros(cnt)
-    for c in per_class_dict:
-        tmp_prob = torch.tensor(per_class_dict[c])
-        n_total = tmp_prob.shape[0]
-        probs,indices = torch.topk(tmp_prob[:,1], k=int(n_total*args.pseudo_ratio))
-        indices_ori = tmp_prob[:,0][indices].long()
-        mask_list[indices_ori] = 1
-    mask_list = mask_list.bool().tolist()
-            
-    return y_list,mask_list
-
-def get_pseudo_labels_by_confidence_and_proportion(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, args: argparse.Namespace):
-    top1 = AverageMeter('Acc_1', ':6.2f')
-    
-    nb_classes = 4
-    confusion_matrix = torch.zeros(nb_classes, nb_classes) 
-    label_dict = {"walk": 0, "bike": 1, "car": 2, "train": 3}
-    idx_dict={}
-    for k,v in label_dict.items():
-        idx_dict[v]=k
-        
-    G.eval()
-    F1.eval()
-    # attn_net.eval()
-
-    THRESHOLD=args.pseudo_thres
-    y_list=[]
-    mask_list_conf=[]
-    per_class_dict={0:[],1:[],2:[],3:[]}
-    cnt = 0
-    with torch.no_grad():
-        for i, data in enumerate(val_loader):
-            images = data[0]
-            labels = data[1]
-            images,labels = images.to(device), labels.to(device)
-            _,g,_,_,_,_,_ = G(images)
-            y = F1(g, None)
-            
-            acc1, = accuracy(y, labels)
-            top1.update(acc1.item(), images.shape[0])
-            _, preds = torch.max(y, 1)
-            for t, p in zip(labels.view(-1), preds.view(-1)):
-                confusion_matrix[t.long(), p.long()] += 1
-                
-            max_prob,_ = torch.max(F.softmax(y),dim=1)
-            mask = (max_prob >= THRESHOLD).tolist()
-            y = torch.argmax(y,dim=1).tolist()
-            
-            cnt += images.shape[0]
-            y_list += y
-            mask_list_conf += mask
-
-            max_prob = max_prob.tolist()
-            for idx,prob in enumerate(max_prob):
-                per_class_dict[y[idx]].append((i*args.batch_size+idx, prob))
-            
-            
-    mask_list_propor = torch.zeros(cnt)
-    for c in per_class_dict:
-        tmp_prob = torch.tensor(per_class_dict[c])
-        n_total = tmp_prob.shape[0]
-        probs,indices = torch.topk(tmp_prob[:,1], k=int(n_total*args.pseudo_ratio))
-        indices_ori = tmp_prob[:,0][indices].long()
-        mask_list_propor[indices_ori] = 1
-    mask_list_propor = mask_list_propor.bool().tolist()
-    # mask_list = mask_list_conf or mask_list_propor
-    mask_list = list(map(operator.and_, mask_list_conf, mask_list_propor))
-    print(sum(mask_list),sum(mask_list_conf),sum(mask_list_propor)) 
-    # 95:8489, 90:10939, 85:12819
-    # 66:12541
-    # (85,66): 11433 12819 12541
-    # (90,66): 9661 10939 12541
-    # (95,66): 7394 8489 12541
-
-    print(str(confusion_matrix))
-    per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
-    print('per class accuracy:')
-    for idx,acc in enumerate(per_class_acc):
-        print('\t '+str(idx_dict[idx])+': '+str(acc))
-    print(' * Acc1 {top1.avg:.3f}'.format(top1=top1))
-    
-    return y_list, mask_list
-
-
-
-def enable_dropout(model):
-    for m in model.modules():
-        if m.__class__.__name__.startswith('Dropout'):
-            m.train()
-                
-def get_pseudo_labels_by_entropyproportion(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, args: argparse.Namespace):
-    top1 = AverageMeter('Acc_1', ':6.2f')
-    
-    nb_classes = 4
-    confusion_matrix = torch.zeros(nb_classes, nb_classes) 
-    label_dict = {"walk": 0, "bike": 1, "car": 2, "train": 3}
-    idx_dict={}
-    for k,v in label_dict.items():
-        idx_dict[v]=k
-        
-    G.eval()
-    F1.eval()
-    # F1.train()
-    # attn_net.eval()
-    
-    cnt = 0
-    # THRESHOLD=args.pseudo_thres
-    y_list=[]
-    # mask_list_conf=[]
-    with torch.no_grad():
-        for i, data in enumerate(val_loader):
-            images = data[0]
-            labels = data[1]
-            images,labels = images.to(device), labels.to(device)
-            _,g,_,_,_,_,_ = G(images)
-            y = F1(g, None)
-            y = F.softmax(y,dim=1)
-
-            acc1, = accuracy(y, labels)
-            top1.update(acc1.item(), images.shape[0])
-            max_prob, preds = torch.max(y, 1)
-            for t, p in zip(labels.view(-1), preds.view(-1)):
-                confusion_matrix[t.long(), p.long()] += 1
-            
-            # mask = (max_prob >= THRESHOLD).tolist()
-            y = torch.argmax(y,dim=1).tolist()
-            y_list += y
-            cnt += images.shape[0]
-            # mask_list_conf += mask
-            
-    print(str(confusion_matrix))
-    per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
-    print('per class accuracy:')
-    for idx,acc in enumerate(per_class_acc):
-        print('\t '+str(idx_dict[idx])+': '+str(acc))
-    print(' * Acc1 {top1.avg:.3f}'.format(top1=top1))
-    
-    
-    
-    # cnt = 0
-    # enable_dropout(F1)
-    # per_class_dict={0:[],1:[],2:[],3:[]}
-    # with torch.no_grad():
-    #     for i, data in enumerate(val_loader):
-    #         images = data[0]
-    #         labels = data[1]
-    #         images,labels = images.to(device), labels.to(device)
-    #         _,g,_,_,_,_,_ = G(images)
-            
-    #         all_y_list=[]
-    #         for idx in range(5):
-    #             y = F1(g, None)
-    #             all_y_list.append(F.softmax(y,dim=1))
-            
-    #         cnt += images.shape[0]
-            
-    #         preds = torch.stack(all_y_list, dim=0)
-    #         preds = torch.mean(preds, dim=0) 
-    #         entropy = -1.0*torch.mean(preds*torch.log(preds + 1e-6), dim=1) #, keepdim=True) 
-    #         entropy = entropy.tolist()
-    #         for idx,ent in enumerate(entropy):
-    #             per_class_dict[y_list[i*args.batch_size+idx]].append((i*args.batch_size+idx, ent))
-    
-    # # pdb.set_trace()
-    # # np.save("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/entropy_per_class_dict.npy", per_class_dict)
-    
-    cnt = 18833
-    per_class_dict = np.load("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/entropy_per_class_dict.npy", allow_pickle=True).item()
-            
-    mask_list_propor = torch.zeros(cnt)
-    for c in per_class_dict:
-        tmp_prob = torch.tensor(per_class_dict[c])
-        n_total = tmp_prob.shape[0]
-        probs,indices = torch.topk(-tmp_prob[:,1], k=int(n_total*args.pseudo_ratio))
-        indices_ori = tmp_prob[:,0][indices].long()
-        mask_list_propor[indices_ori] = 1
-    mask_list_propor = mask_list_propor.bool().tolist()
-    
-    # mask_list = list(map(operator.and_, mask_list_conf, mask_list_propor))
-    mask_list = mask_list_propor
-    print(sum(mask_list))#,sum(mask_list_conf),sum(mask_list_propor)) 
-
-    cnt=0
-    F1.eval()
-    top1 = AverageMeter('Acc_1', ':6.2f')
-    confusion_matrix = torch.zeros(nb_classes, nb_classes) 
-    with torch.no_grad():
-        for i, data in enumerate(val_loader):
-            images = data[0]
-            labels = data[1]
-            images,labels = images.to(device), labels.to(device)
-            _,g,_,_,_,_,_ = G(images)
-            y = F1(g, None)
-            y = F.softmax(y,dim=1)
-
-            select_idx = torch.nonzero(torch.tensor(mask_list[cnt:cnt+images.shape[0]])).squeeze(1)
-            if len(select_idx)>0:
-                y = y[select_idx]
-                labels = labels[select_idx]
-                
-                acc1, = accuracy(y, labels)
-                top1.update(acc1.item(), len(select_idx))
-                _, preds = torch.max(y, 1)
-                for t, p in zip(labels.view(-1), preds.view(-1)):
-                    confusion_matrix[t.long(), p.long()] += 1
-            
-            cnt += images.shape[0]
-            
-    print('-------------------------------')
-    print(str(confusion_matrix))
-    per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
-    print('per class accuracy after filtering:')
-    for idx,acc in enumerate(per_class_acc):
-        print('\t '+str(idx_dict[idx])+': '+str(acc))
-    print(' * Acc1 {top1.avg:.3f}'.format(top1=top1))
-    print('-------------------------------')
-    
-    return y_list, mask_list
-
-def get_pseudo_labels_by_confidence_and_entropyproportion(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, args: argparse.Namespace):
-    top1 = AverageMeter('Acc_1', ':6.2f')
-    
-    nb_classes = 4
-    confusion_matrix = torch.zeros(nb_classes, nb_classes) 
-    label_dict = {"walk": 0, "bike": 1, "car": 2, "train": 3}
-    idx_dict={}
-    for k,v in label_dict.items():
-        idx_dict[v]=k
-        
-    G.eval()
-    F1.eval()
-    # F1.train()
-    # attn_net.eval()
-    
-    cnt = 0
-    THRESHOLD=args.pseudo_thres
-    y_list=[]
-    mask_list_conf=[]
-    with torch.no_grad():
-        for i, data in enumerate(val_loader):
-            images = data[0]
-            labels = data[1]
-            images,labels = images.to(device), labels.to(device)
-            _,g,_,_,_,_,_ = G(images)
-            y = F1(g, None)
-            y = F.softmax(y,dim=1)
-
-            acc1, = accuracy(y, labels)
-            top1.update(acc1.item(), images.shape[0])
-            max_prob, preds = torch.max(y, 1)
-            for t, p in zip(labels.view(-1), preds.view(-1)):
-                confusion_matrix[t.long(), p.long()] += 1
-            
-            mask = (max_prob >= THRESHOLD).tolist()
-            y = torch.argmax(y,dim=1).tolist()
-            y_list += y
-            mask_list_conf += mask
-            cnt += images.shape[0]
-                
-    # print(str(confusion_matrix))
-    # per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
-    # print('per class accuracy:')
-    # for idx,acc in enumerate(per_class_acc):
-    #     print('\t '+str(idx_dict[idx])+': '+str(acc))
-    # print(' * Acc1 {top1.avg:.3f}'.format(top1=top1))
-    
-    
-    
-    # cnt = 0
-    # enable_dropout(F1)
-    # per_class_dict={0:[],1:[],2:[],3:[]}
-    # with torch.no_grad():
-    #     for i, data in enumerate(val_loader):
-    #         images = data[0]
-    #         labels = data[1]
-    #         images,labels = images.to(device), labels.to(device)
-    #         _,g,_,_,_,_,_ = G(images)
-            
-    #         all_y_list=[]
-    #         for idx in range(5):
-    #             y = F1(g, None)
-    #             all_y_list.append(F.softmax(y,dim=1))
-    #         # y=all_y_list[0]
-            
-    #         # acc1, = accuracy(y, labels)
-    #         # top1.update(acc1.item(), images.shape[0])
-    #         # _, preds = torch.max(y, 1)
-    #         # for t, p in zip(labels.view(-1), preds.view(-1)):
-    #         #     confusion_matrix[t.long(), p.long()] += 1
-                
-    #         # max_prob,_ = torch.max(y,dim=1)
-    #         # mask = (max_prob >= THRESHOLD).tolist()
-    #         # y = torch.argmax(y,dim=1).tolist()
-            
-    #         cnt += images.shape[0]
-    #         # y_list += y
-    #         # mask_list_conf += mask
-            
-    #         preds = torch.stack(all_y_list, dim=0)
-    #         preds = torch.mean(preds, dim=0) 
-    #         entropy = -1.0*torch.mean(preds*torch.log(preds + 1e-6), dim=1) #, keepdim=True) 
-    #         entropy = entropy.tolist()
-    #         for idx,ent in enumerate(entropy):
-    #             per_class_dict[y_list[i*args.batch_size+idx]].append((i*args.batch_size+idx, ent))
-      
-            
-    cnt = 18833
-    per_class_dict = np.load("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/entropy_per_class_dict.npy", allow_pickle=True).item()
-        
-        
-    mask_list_propor = torch.zeros(cnt)
-    for c in per_class_dict:
-        tmp_prob = torch.tensor(per_class_dict[c])
-        n_total = tmp_prob.shape[0]
-        probs,indices = torch.topk(-tmp_prob[:,1], k=int(n_total*args.pseudo_ratio))
-        indices_ori = tmp_prob[:,0][indices].long()
-        mask_list_propor[indices_ori] = 1
-    mask_list_propor = mask_list_propor.bool().tolist()
-    
-    # mask_list = mask_list_conf or mask_list_propor
-    mask_list = list(map(operator.and_, mask_list_conf, mask_list_propor))
-    print(sum(mask_list),sum(mask_list_conf),sum(mask_list_propor)) 
-    # (85,66): 11433 12819 12541
-    # (90,66): 9661 10939 12541
-    # (95,66): 7394 8489 12541
-
-    # print(str(confusion_matrix))
-    # per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
-    # print('per class accuracy:')
-    # for idx,acc in enumerate(per_class_acc):
-    #     print('\t '+str(idx_dict[idx])+': '+str(acc))
-    # print(' * Acc1 {top1.avg:.3f}'.format(top1=top1))
-    
-    cnt=0
-    F1.eval()
-    top1 = AverageMeter('Acc_1', ':6.2f')
-    confusion_matrix = torch.zeros(nb_classes, nb_classes) 
-    with torch.no_grad():
-        for i, data in enumerate(val_loader):
-            images = data[0]
-            labels = data[1]
-            images,labels = images.to(device), labels.to(device)
-            _,g,_,_,_,_,_ = G(images)
-            y = F1(g, None)
-            y = F.softmax(y,dim=1)
-
-            select_idx = torch.nonzero(torch.tensor(mask_list[cnt:cnt+images.shape[0]])).squeeze(1)
-            if len(select_idx)>0:
-                y = y[select_idx]
-                labels = labels[select_idx]
-                
-                acc1, = accuracy(y, labels)
-                top1.update(acc1.item(), len(select_idx))
-                _, preds = torch.max(y, 1)
-                for t, p in zip(labels.view(-1), preds.view(-1)):
-                    confusion_matrix[t.long(), p.long()] += 1
-            
-            cnt += images.shape[0]
-            
-    print('-------------------------------')
-    print(str(confusion_matrix))
-    per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
-    print('per class accuracy after filtering:')
-    for idx,acc in enumerate(per_class_acc):
-        print('\t '+str(idx_dict[idx])+': '+str(acc))
-    print(' * Acc1 {top1.avg:.3f}'.format(top1=top1))
-    print('-------------------------------')
-    
-    return y_list, mask_list
-
-
-
-
-
-def get_pseudo_labels_by_confidence_nbr(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, args: argparse.Namespace, part=None):
-    G.eval()
-    F1.eval()
-    
-    THRESHOLD=args.pseudo_thres
-    y_list=[]
-    mask_list=[]
-    with torch.no_grad():
-        for i, data in enumerate(val_loader):
-            if part=='train':
-                images = data[3].to(device)
-            else:
-                images = data[2].to(device)
-            _,g,_,_,_,_,_ = G(images)
-            y = F1(g, None)
-            
-            max_prob,_ = torch.max(F.softmax(y),dim=1)
-            mask = (max_prob >= THRESHOLD).tolist()
-            y = torch.argmax(y,dim=1).tolist()
-
-            y_list+=y
-            mask_list+=mask
-    
-    return y_list, mask_list
 
 
 

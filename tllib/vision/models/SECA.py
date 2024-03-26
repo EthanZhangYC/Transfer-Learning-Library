@@ -10,7 +10,7 @@ from tllib.modules.grl import WarmStartGradientReverseLayer
 from einops import rearrange, repeat, pack, unpack
 from einops.layers.torch import Rearrange
 
-__all__ = ['TSEncoder','Classifier_clf','ViT','AttnNet','TSEncoder_new', 'Classifier_clf_samedim']
+__all__ = ['TSEncoder','Classifier_clf','ViT','AttnNet','TSEncoder_new', 'Classifier_clf_samedim', 'LabelEncoder']
 
 
 class GradientReversalFunction(torch.autograd.Function):
@@ -235,6 +235,23 @@ class AttnNet(nn.Module):
         
     def forward(self, x): 
         _,(_,x) = self.lstm(x)
+        x = self.fc(x)
+        return x
+    
+class LabelEncoder(nn.Module):
+    def __init__(self, input_dim=1, embed_dim=16, num_layers=2):
+        super(LabelEncoder, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.ReLU(),
+            nn.Dropout(p=0.5),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Dropout(p=0.5),
+            nn.Linear(64, embed_dim)
+        )
+        
+    def forward(self, x): 
         x = self.fc(x)
         return x
 
