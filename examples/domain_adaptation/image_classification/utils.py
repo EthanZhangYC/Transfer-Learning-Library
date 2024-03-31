@@ -763,19 +763,19 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
             neighbors = self.transform(neighbors)
         
         
-        if len(nbrs_list_label)>0:
-            nbrs_list_label = np.array(nbrs_list_label)
-            nbrs_labels = np.array([np.sum(nbrs_list_label==0),np.sum(nbrs_list_label==1),np.sum(nbrs_list_label==2),np.sum(nbrs_list_label==3)])
-            nbrs_labels = nbrs_labels / (np.sum(nbrs_labels)+1)
-            nbrs_labels = nbrs_labels.astype(np.float32)
-            if self.nbr_label_mode == 'combine_each_pt':
-                nbrs_labels = np.tile(nbrs_labels[np.newaxis,::], [650,1])
-                img = np.concatenate([img, nbrs_labels], axis=1)
-                img[img[:,2]==0] = 0.
-            else:
-                nbrs_labels = torch.as_tensor(nbrs_labels)
+        # if len(nbrs_list_label)>0:
+        nbrs_list_label = np.array(nbrs_list_label)
+        nbrs_labels = np.array([np.sum(nbrs_list_label==0),np.sum(nbrs_list_label==1),np.sum(nbrs_list_label==2),np.sum(nbrs_list_label==3)])
+        nbrs_labels = nbrs_labels / (np.sum(nbrs_labels)+1)
+        nbrs_labels = nbrs_labels.astype(np.float32)
+        if self.nbr_label_mode == 'combine_each_pt':
+            nbrs_labels = np.tile(nbrs_labels[np.newaxis,::], [650,1])
+            img = np.concatenate([img, nbrs_labels], axis=1)
+            img[img[:,2]==0] = 0.
         else:
-            nbrs_labels = None
+            nbrs_labels = torch.as_tensor(nbrs_labels)
+        # else:
+        #     nbrs_labels = torch.ones([4])/4
         
         
         img = torch.as_tensor(img) #650,9

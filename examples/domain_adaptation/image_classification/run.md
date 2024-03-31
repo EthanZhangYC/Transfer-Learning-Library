@@ -706,8 +706,30 @@ python mcd_neighbor_v5_attn.py \
 
 
 
+CUDA_VISIBLE_DEVICES=8 \
+python mcd_neighbor_v5_attn.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode perpt_qkv_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--nbr_pseudo \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--log logs/0326_mcd_v5_freeze_01_entpropor0666_v2_perptqkvcat_0124newnbr20_limit10_nbrgrad
 
-
+--log logs/0326_mcd_v5_freeze_01_entpropor0666_v2_perptqkvcat_0124newnbr20_limit10_Nonbrgrad
 
 
 
@@ -731,3 +753,6 @@ python mcd_neighbor_v5_attn_failcase.py \
 --pseudo_ratio 0.666 \
 --num_head 2 \
 --log logs/test
+
+
+python find_common_failcase.py
