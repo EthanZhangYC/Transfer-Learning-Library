@@ -40,15 +40,11 @@ def main(args: argparse.Namespace):
     print(args)
 
     if args.seed is not None:
-        # random.seed(args.seed)
-        # torch.manual_seed(args.seed)
-        # cudnn.deterministic = True
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
                       'which can slow down your training considerably! '
                       'You may see unexpected behavior when restarting '
                       'from checkpoints.')
-
     cudnn.benchmark = True
     
     
@@ -56,11 +52,7 @@ def main(args: argparse.Namespace):
         G = models.TSEncoder_new(input_dims=7+4).to(device)
     else:
         G = models.TSEncoder_new().to(device)
-    # G_ori = models.TSEncoder_new().to(device)
-    classifier_features_dim=64
-    num_classes = 4
 
-    # F1_ori = models.Classifier_clf(input_dim=64).to(device)    
     if 'cat_samedim' in args.nbr_mode:
         raise NotImplementedError
         F1 = models.Classifier_clf_samedim(input_dim=64).to(device)
@@ -93,74 +85,7 @@ def main(args: argparse.Namespace):
     multihead_attn = nn.MultiheadAttention(64, num_heads=args.num_head, batch_first=True).to(device)
     nbr_label_encoder = models.LabelEncoder(input_dim=4, embed_dim=args.nbr_label_embed_dim).to(device)
 
-    
-    
-    # ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/mcd_1015/checkpoints/best.pth'
-    # ckpt = torch.load(ckpt_dir, map_location='cuda:0')
-    # G_ori.load_state_dict(ckpt['G'], strict=False)
-    # if args.nbr_label_mode == 'combine_each_pt':
-    #     del ckpt['G']['input_fc.weight']
-    #     del ckpt['G']['input_fc.bias']
-    # G.load_state_dict(ckpt['G'], strict=False)
-    # F1_ori.load_state_dict(ckpt['F2'])#, strict=False)
-    
-    # if 'cat_samedim' in args.nbr_mode:
-    #     F1.load_state_dict(ckpt['F2'], strict=False)
-    #     for name,param in F1.named_parameters():
-    #         if 'fc' in name:
-    #             param.requires_grad = False 
-        
-    # if args.mean_tea:
-    #     for param_s, param_t in zip(F1.parameters(), F1_t.parameters()):
-    #         param_t.data.copy_(param_s.data) 
-    #         param_t.requires_grad=False
-    
-    # for param in G.parameters():
-    #     param.requires_grad = False 
-    
-    # _,_,_,train_loader_target = utils.load_data(args)
-    # pseudo_labels,pseudo_labels_mask = eval('get_pseudo_labels_by_'+args.pseudo_mode)(train_loader_target, G_ori, F1_ori, args)
     pseudo_labels=pseudo_labels_mask=None
-    # train_source_iter, train_target_iter, val_loader,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
-    # del G_ori, F1_ori
-    
-
-    # optimizer_g = Adam(G.parameters(), args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
-    # optimizer_f = Adam([
-    #     {"params": F1.parameters()},
-    #     {"params": F2.parameters()},
-    #     {"params": multihead_attn.parameters()},
-    #     {"params": attn_net.parameters()},
-    #     {"params": nbr_label_encoder.parameters()},
-    # ], args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
-   
-
-    # # resume from the best checkpoint
-    # if args.phase != 'train':
-    #     checkpoint = torch.load(logger.get_checkpoint_path('best'), map_location='cpu')
-    #     G.load_state_dict(checkpoint['G'])
-    #     F1.load_state_dict(checkpoint['F1'])
-    #     F2.load_state_dict(checkpoint['F2'])
-
-    # # analysis the model
-    # if args.phase == 'analysis':
-    #     # extract features from both domains
-    #     feature_extractor = nn.Sequential(G, F1.pool_layer).to(device)
-    #     source_feature = collect_feature(train_source_loader, feature_extractor, device)
-    #     target_feature = collect_feature(train_target_loader, feature_extractor, device)
-    #     # plot t-SNE
-    #     tSNE_filename = osp.join(logger.visualize_directory, 'TSNE.pdf')
-    #     tsne.visualize(source_feature, target_feature, tSNE_filename)
-    #     print("Saving t-SNE to", tSNE_filename)
-    #     # calculate A-distance, which is a measure for distribution discrepancy
-    #     A_distance = a_distance.calculate(source_feature, target_feature, device)
-    #     print("A-distance =", A_distance)
-    #     return
-
-    # if args.phase == 'test':
-    #     acc1 = validate(test_loader, G, F1, F2, args)
-    #     print(acc1)
-    #     return
 
     filename='v1'
     ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/0312_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_qkvcat_0124newnbr20m_limit100_nbrgrad/checkpoints/best.pth'
@@ -187,46 +112,6 @@ def main(args: argparse.Namespace):
     results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn, nbr_label_encoder, filename=filename)
     print('---------------------')
     
-    
-    
-    # # start training
-    # best_acc1 = 0.
-    # best_results = None
-    # best_epoch = 0
-    # for epoch in range(args.epochs):
-    #     # train for one epoch
-    #     train(train_source_iter, train_target_iter, G, F1, F2, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t, multihead_attn, nbr_label_encoder)
-
-    #     # evaluate on validation set
-    #     results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn, nbr_label_encoder)
-
-    #     # remember best acc@1 and save checkpoint
-    #     torch.save({
-    #         'G': G.state_dict(),
-    #         'F1': F1.state_dict(),
-    #         'F2': F2.state_dict(),
-    #         'multihead_attn': multihead_attn.state_dict(),
-    #         'attnnet':attn_net.state_dict(),
-    #         'nbr_label_encoder':nbr_label_encoder
-    #     }, logger.get_checkpoint_path('latest'))
-    #     if max(results) > best_acc1:
-    #         shutil.copy(logger.get_checkpoint_path('latest'), logger.get_checkpoint_path('best'))
-    #         best_acc1 = max(results)
-    #         best_results = results
-    #         best_epoch = epoch
-    #     print("best_acc1 = {:3.1f} ({}), results = {}".format(best_acc1, best_epoch, best_results))
-        
-    #     if args.pseudo_every_epoch:
-    #         _,_,_,train_loader_target = utils.load_data(args)
-    #         pseudo_labels,pseudo_labels_mask = eval('get_pseudo_labels_by_'+args.pseudo_mode)(train_loader_target, G, F1, args)
-    #         train_source_iter, train_target_iter, val_loader,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
-
-
-    # # evaluate on test set
-    # checkpoint = torch.load(logger.get_checkpoint_path('best'), map_location='cpu')
-    # G.load_state_dict(checkpoint['G'])
-    # F1.load_state_dict(checkpoint['F1'])
-    # logger.close()
 
 
 class Attention(nn.Module):
@@ -934,24 +819,20 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
 
             # measure accuracy and record loss
             acc1, = accuracy(y1, labels)
-            # acc2, = accuracy(y2, labels)
             if confmat:
                 confmat.update(labels, y1.argmax(1))
             top1_1.update(acc1.item(), bs)
-            # top1_2.update(acc2.item(), bs)
             
             hard_y = torch.argmax(y1,dim=1)
-            diff_ids = torch.nonzero(hard_y != labels).cpu()
+            # diff_ids = torch.nonzero(hard_y != labels).cpu()
+            diff_ids = torch.nonzero(hard_y == labels).cpu()
             for diff_id in diff_ids:
                 tmp_label = labels[diff_id].item()
                 wrong_list[tmp_label].append((diff_id+i*args.batch_size).item())
             
             _, preds1 = torch.max(y1, 1)
-            # _, preds2 = torch.max(y2, 1)
             for t, p in zip(labels.view(-1), preds1.view(-1)):
                 confusion_matrix1[t.long(), p.long()] += 1
-            # for t, p in zip(labels.view(-1), preds2.view(-1)):
-            #     confusion_matrix2[t.long(), p.long()] += 1
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -960,7 +841,8 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
             if i % args.print_freq == 0:
                 progress.display(i)
                 
-        np.save("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase/%s"%filename, np.array(wrong_list))
+        # np.save("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase/%s"%filename, np.array(wrong_list))
+        np.save("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase_correct/%s"%filename, np.array(wrong_list))
         
         if top1_1.avg > top1_2.avg:
             confusion_matrix = confusion_matrix1

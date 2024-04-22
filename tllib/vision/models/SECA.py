@@ -9,8 +9,9 @@ from tllib.modules.grl import WarmStartGradientReverseLayer
 
 from einops import rearrange, repeat, pack, unpack
 from einops.layers.torch import Rearrange
+import pdb
 
-__all__ = ['TSEncoder','Classifier_clf','ViT','AttnNet','TSEncoder_new', 'Classifier_clf_samedim', 'LabelEncoder']
+__all__ = ['TSEncoder','Classifier_clf','ViT','AttnNet','TSEncoder_new', 'Classifier_clf_samedim', 'LabelEncoder', 'DimConverter']
 
 
 class GradientReversalFunction(torch.autograd.Function):
@@ -255,6 +256,20 @@ class LabelEncoder(nn.Module):
         x = self.fc(x)
         return x
 
+class DimConverter(nn.Module):
+    def __init__(self, input_dim=64, out_dim=64):
+        super(DimConverter, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(input_dim, out_dim),
+            # nn.ReLU(),
+            nn.Linear(out_dim, out_dim),
+            # nn.ReLU()
+        )
+        
+    def forward(self, x): 
+        x = self.fc(x)
+        return x
+
 
 
 def generate_continuous_mask(B, T, n=5, l=0.1):
@@ -440,19 +455,12 @@ class TSEncoder_new(nn.Module):
             nn.Linear(64, reconstruct_dim)
         )
         
-    def forward(self, x, mask_for_ts2loss=False, mask=None, is_pred_va=False, sameva=False, exchange=False):  
+    def forward(self, x, args=None, mask_early=False, mask_late=False):  
         nan_mask = ~x.isnan().any(axis=-1)
 
-        x = self.input_fc(x)  # B x T x Ch
-
-        if mask_for_ts2loss:
+        if mask_early:
             # generate & apply mask
-            if mask is None:
-                if self.training:
-                    mask = self.mask_mode
-                else:
-                    mask = 'all_true'
-            
+            mask = self.mask_mode
             if mask == 'binomial':
                 mask = generate_binomial_mask(x.size(0), x.size(1)).to(x.device)
             elif mask == 'continuous':
@@ -464,32 +472,53 @@ class TSEncoder_new(nn.Module):
             elif mask == 'mask_last':
                 mask = x.new_full((x.size(0), x.size(1)), True, dtype=torch.bool)
                 mask[:, -1] = False
-            
             ori_mask = mask.detach()
-            mask &= nan_mask
-            # x[~mask] = 0
             x[~mask] = 0 # masked->False
-
         else:
             ori_mask=None
+        
+        x = self.input_fc(x)  # B x T x Ch
 
         # conv encoder
         x = x.transpose(1, 2)  # B x Ch x T
         x = self.feature_extractor(x)  # B x Co x T
-        ori_feat = x = x.transpose(1, 2)  # B x T x Co
-
+        x = x.transpose(1, 2)  # B x T x Co
+        ori_feat = x.clone()
+        
         feat = x = F.avg_pool1d(
             x.transpose(1, 2),
             kernel_size = x.size(1),
         ).transpose(1, 2).squeeze(1)
-
-        logits = self.fc(feat) 
-        pred_each = self.fc(ori_feat)
         
-        con_logits = None
-        va_logits = self.fc_va(ori_feat)
-
-        return logits, feat, ori_feat, con_logits, va_logits, ori_mask, pred_each
+        
+        if mask_late:
+            # generate & apply mask
+            feat_list=[]
+            for i in range(args.n_mask_late):
+                mask = self.mask_mode
+                tmp_ori_feat = ori_feat.clone()
+                if mask == 'binomial':
+                    mask = generate_binomial_mask(tmp_ori_feat.size(0), tmp_ori_feat.size(1)).to(x.device)
+                else:
+                    raise NotImplementedError                
+                tmp_ori_feat[~mask] = 0 # masked->False
+                tmp_feat = F.avg_pool1d(
+                    tmp_ori_feat.transpose(1, 2),
+                    kernel_size = tmp_ori_feat.size(1),
+                ).transpose(1, 2).squeeze(1)
+                feat_list.append(tmp_feat)
+                # del tmp_ori_feat,
+            logits=con_logits=va_logits=ori_mask=pred_each=None
+            return logits, (feat,feat_list), ori_feat, con_logits, va_logits, ori_mask, pred_each
+                            
+        else:            
+            # logits = self.fc(feat) 
+            # pred_each = self.fc(ori_feat)
+            # con_logits = None
+            # va_logits = self.fc_va(ori_feat)
+            logits=con_logits=va_logits=ori_mask=pred_each=None
+            feat_list=None
+            return logits, feat, ori_feat, con_logits, va_logits, ori_mask, pred_each
 
 
 

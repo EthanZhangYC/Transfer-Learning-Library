@@ -729,7 +729,120 @@ python mcd_neighbor_v5_attn.py \
 --num_head 2 \
 --log logs/0326_mcd_v5_freeze_01_entpropor0666_v2_perptqkvcat_0124newnbr20_limit10_nbrgrad
 
+CUDA_VISIBLE_DEVICES=8 \
+python mcd_neighbor_v5_attn.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode perpt_qkv_add \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--nbr_pseudo \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--log logs/0331_mcd_v5_freeze_01_entpropor0666_v2_perptqkvadd_0124newnbr20_limit10_nbrgrad
+
 --log logs/0326_mcd_v5_freeze_01_entpropor0666_v2_perptqkvcat_0124newnbr20_limit10_Nonbrgrad
+
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=6 \
+CUDA_VISIBLE_DEVICES=1 \
+python mcd_neighbor_v5_attn.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode qkv_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--nbr_pseudo \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--random_mask_nbr_ratio 0.5 \
+--log logs/0331_mcd_v5_freeze_01_entpropor0666_v2_qkvcat_0124newnbr20_limit10_nbrgrad_nbrmask05
+
+CUDA_VISIBLE_DEVICES=6 \
+python mcd_neighbor_v5_attn.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode qkv_cat_maskboth \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--nbr_pseudo \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--random_mask_nbr_ratio 0.5 \
+--log logs/0331_mcd_v5_freeze_01_entpropor0666_v2_qkvcat_0124newnbr20_limit10_nbrgrad_nbrmask05
+
+
+--mask_early \
+
+
+CUDA_VISIBLE_DEVICES=9 \
+python mcd_neighbor_v5_attn.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode qkv_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--nbr_pseudo \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--mask_late \
+--n_mask_late 10 \
+--log logs/0403_mcd_v5_freeze_01_entpropor0666_v2_qkvcat_0124newnbr20_limit10_nbrgrad_masklate10
+
+
+
+
+
+
+
 
 
 
@@ -756,3 +869,145 @@ python mcd_neighbor_v5_attn_failcase.py \
 
 
 python find_common_failcase.py
+
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=1 \
+python mcd_neighbor_v6_bert.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--bert_out_dim 64 \
+--log logs/0410_mcd_v6_freeze_01_entpropor0666_v2_bertcat_p3_maxlen60
+
+
+
+CUDA_VISIBLE_DEVICES=6 \
+python mcd_neighbor_v6_bert.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_learnable_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--bert_out_dim 64 \
+--token_max_len 30 \
+--token_len 30 \
+--log logs/0411_mcd_v6_freeze_01_entpropor0666_v2_bertlearnablecat_p3_maxlen30_learnable30
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=9 \
+python mcd_neighbor_v7_bertwithmcd.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--nbr_mode bert_learnable_cat \
+--steps_list ABC \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--bert_out_dim 64 \
+--token_max_len 110 \
+--token_len 10 \
+--log logs/0415_mcd_v7_freeze_01_entpropor0666_v2_bertlearnablecat_ABC_p3_maxlen110_learnable10
+
+
+CUDA_VISIBLE_DEVICES=4 \
+python mcd_neighbor_v7_bertwithmcd.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--nbr_mode bert_cat \
+--steps_list ABC \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--token_max_len 60 \
+--log logs/0421_mcd_v7_freeze_01_bertcat_ABC_p5_maxlen60_2fc_correctbertinput
+
+CUDA_VISIBLE_DEVICES=4 \
+python mcd_neighbor_v7_bertwithmcd.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--nbr_mode bertonly_add \
+--steps_list ABC \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--token_max_len 60 \
+--prompt_id 5 \
+--log logs/0422_mcd_v7_freeze_01_bertonly_ABC_p5_maxlen60_2fc_correctbertinput
+
+
+
+
+
+
+
+
+
+
+
+
+
+--nbr_mode bertonly_learnable_add \
+--token_len 10 \
+
+--nbr_mode bertonly_add \
+--steps_list A_sourceonly \
+
+
+
+
+
+
+
+
+

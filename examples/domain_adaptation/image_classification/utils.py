@@ -26,7 +26,8 @@ from tllib.utils.metric import accuracy, ConfusionMatrix
 from tllib.utils.meter import AverageMeter, ProgressMeter
 from tllib.vision.datasets.imagelist import MultipleDomainsDataset
 
-
+import random 
+import math
 
 from torch.utils.data import TensorDataset, DataLoader
 import torchvision
@@ -689,7 +690,7 @@ def change_to_new_channel_v5(inputs, max_threshold):
     return total_input_new
 
 class create_single_dataset_idx_v3(torch.utils.data.Dataset):
-    def __init__(self, imgs, labels, neighbors_idx, total_trips, pos_trips, part='train', transform=None, dataset='', label_mask=None, nbr_limit=10, neighbor_labels=None, args=None):
+    def __init__(self, imgs, labels, neighbors_idx, total_trips, pos_trips, part='train', transform=None, dataset='', label_mask=None, nbr_limit=10, neighbor_labels=None, args=None, enc_tokenizer=None):
         super(create_single_dataset_idx_v3, self).__init__()
         
         self.imgs = imgs.astype(np.float32)
@@ -706,6 +707,10 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
         self.transform = transform
         
         self.nbr_label_mode = args.nbr_label_mode
+        self.random_mask_nbr_ratio = args.random_mask_nbr_ratio
+        self.enc_tokenizer = enc_tokenizer 
+        self.token_max_len = args.token_max_len
+        self.prompt_id = args.prompt_id
 
     def __getitem__(self, index):
         img = self.imgs[index]
@@ -744,7 +749,11 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
                 nbr_label = self.neighbor_labels[each_nbr]
                 nbrs_list_label.append(nbr_label)
             nbrs_list.append(nbr_seg)
-            
+        
+                
+        if self.random_mask_nbr_ratio!=1 and self.part=='train':
+            n_nbr = len(nbrs_list)
+            nbrs_list = random.sample(nbrs_list, math.ceil(n_nbr*self.random_mask_nbr_ratio))
 
 
         if len(nbr_idxes)==0:
@@ -761,6 +770,7 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
         if self.transform is not None:
             img = self.transform(img)
             neighbors = self.transform(neighbors)
+            
         
         
         # if len(nbrs_list_label)>0:
@@ -778,6 +788,59 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
         #     nbrs_labels = torch.ones([4])/4
         
         
+        
+        if self.enc_tokenizer is not None:
+            if self.dataset=='tgt':
+                current_minmax = [(45.230416, 45.9997262293), (-74.31479102, -72.81248199999999), (45.230416, 45.9997262293), (-74.31479102, -72.81248199999999),  \
+                    (0.9999933186918497, 1198.999998648651), (0.0, 50118.17550774085), (0.0, 49.95356703911097), (-9.99348698095659, 9.958323482935628), (-39.64566646191948, 1433.3438889109589), (0.0, 359.95536847383516)]
+            else:
+                current_minmax = [(18.249901, 55.975593), (-122.3315333, 126.998528), (18.249901, 55.975593), (-122.3315333, 126.998528), \
+                    (0.9999933186918497, 1198.999998648651), (0.0, 50118.17550774085), (0.0, 49.95356703911097), (-9.99348698095659, 9.958323482935628), (-39.64566646191948, 1433.3438889109589), (0.0, 359.95536847383516)]
+        
+            pad_mask = (img[:,2]!=0)
+            n_nonzero = pad_mask.sum()
+            unnorm_img = img.copy()
+            for i in range(2,9):
+                tmp_max,tmp_min = current_minmax[i][0],current_minmax[i][1]
+                unnorm_img[:,i] = unnorm_img[:,i] * (tmp_max-tmp_min) + tmp_min
+            unnorm_img[~pad_mask]=0
+            avg_v, avg_a, avg_j, avg_br = unnorm_img[:,4].sum()/n_nonzero, unnorm_img[:,5].sum()/n_nonzero, unnorm_img[:,6].sum()/n_nonzero, unnorm_img[:,7].sum()/n_nonzero
+            max_v, max_a, max_j, max_br = unnorm_img[:,4][pad_mask].max(), unnorm_img[:,5][pad_mask].max(), unnorm_img[:,6][pad_mask].max(), unnorm_img[:,7][pad_mask].max()
+            min_v, min_a, min_j, min_br = unnorm_img[:,4][pad_mask].min(), unnorm_img[:,5][pad_mask].min(), unnorm_img[:,6][pad_mask].min(), unnorm_img[:,7][pad_mask].min()
+            
+            
+            paragraph1 = 'The average speed, acceleration, jerk, bearing rate of this segment are {}, {}, {}, and {}, respectively.'.format(
+                avg_v, avg_a, avg_j, avg_br) # time, dist, v, a, jerk, bearing, is_real
+            paragraph2 = 'The average speed, acceleration, jerk, bearing rate of this segment are {}, {}, {}, and {}, respectively. The maximum speed, acceleration, jerk, bearing rate of this segment are {}, {}, {}, and {}, respectively. The minimum speed, acceleration, jerk, bearing rate of this segment are {}, {}, {}, and {}, respectively.'.format(
+                avg_v, avg_a, avg_j, avg_br, 
+                max_v, max_a, max_j, max_br, 
+                min_v, min_a, min_j, min_br) # add max & min
+            paragraph3 = 'This is a trajectory. Its average speed, acceleration, jerk, and bearing rate are {}, {}, {}, and {}, respectively. Furthermore, the trajectory reaches maximum values of speed, acceleration, jerk, and bearing rate at {}, {}, {}, and {}. Conversely, the minimum speed, acceleration, jerk, and bearing rate of the trajectory are {}, {}, {}, and {}, respectively.'.format(
+                avg_v, avg_a, avg_j, avg_br, 
+                max_v, max_a, max_j, max_br, 
+                min_v, min_a, min_j, min_br) # gpt polished
+            
+            real_pt_ratio, mask_ratio = unnorm_img[:,-1].sum()/650*100, n_nonzero/650*100
+            paragraph4 = 'This is a trajectory length 650. {}%% of it are padding points and {}%% of it are interpolated points, where the interpolated points was inserted if the time interval between points is large. Its average speed, acceleration, jerk, and bearing rate are {}, {}, {}, and {}, respectively. Furthermore, the trajectory reaches maximum values of speed, acceleration, jerk, and bearing rate at {}, {}, {}, and {}. Conversely, the minimum speed, acceleration, jerk, and bearing rate of the trajectory are {}, {}, {}, and {}, respectively.'.format(
+                real_pt_ratio, mask_ratio, 
+                avg_v, avg_a, avg_j, avg_br, 
+                max_v, max_a, max_j, max_br, 
+                min_v, min_a, min_j, min_br) # add real-pt and mask ratio
+            
+            nbrs_labels_ratio = nbrs_labels * 100
+            paragraph5 = 'This is a trajectory length 650. {}%% of it are padding points and {}%% of it are interpolated points, where the interpolated points was inserted if the time interval between points is large. Its average speed, acceleration, jerk, and bearing rate are {}, {}, {}, and {}, respectively. Furthermore, the trajectory reaches maximum values of speed, acceleration, jerk, and bearing rate at {}, {}, {}, and {}. Conversely, the minimum speed, acceleration, jerk, and bearing rate of the trajectory are {}, {}, {}, and {}, respectively. Among its neighbor segments, {}%% of them are walking trajectory, {}%% of them are riding trajectory, {}%% of them are car trajectory, and {}%% of them are public transport trajectory'.format(
+                real_pt_ratio, mask_ratio, 
+                avg_v, avg_a, avg_j, avg_br, 
+                max_v, max_a, max_j, max_br, 
+                min_v, min_a, min_j, min_br, 
+                nbrs_labels_ratio[0], nbrs_labels_ratio[1], nbrs_labels_ratio[2], nbrs_labels_ratio[3]) # add nbr label ratio
+            
+            bert_input = self.enc_tokenizer(eval('paragraph%d'%self.prompt_id), max_length = self.token_max_len, truncation = True, padding = "max_length")
+            # bert_input = self.enc_tokenizer(paragraph, add_special_tokens = True, max_length = 60, return_attention_mask = True, truncation = True, padding = "max_length")
+            bert_input = torch.as_tensor(bert_input['input_ids'])
+        else:
+            bert_input = None
+        
         img = torch.as_tensor(img) #650,9
         neighbors = torch.as_tensor(neighbors.astype(np.float32))
         # distances = torch.as_tensor(distances.astype(np.float32))
@@ -786,7 +849,7 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
         if self.part=='test':
             label = torch.as_tensor(self.labels[index])
             # if self.nbr_label_mode == 'separate_input':
-            return img, label, neighbors, nbrs_labels
+            return img, label, neighbors, nbrs_labels, bert_input
             # else:
             #     return img, label, neighbors
         elif self.dataset=='src':
@@ -797,7 +860,7 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
             #     neighbors_label = torch.as_tensor(self.neighbor_labels[index])
             
             # if self.nbr_label_mode == 'separate_input':
-            return img, label, neighbors, nbrs_labels, torch.as_tensor(0)
+            return img, label, neighbors, nbrs_labels, torch.as_tensor(0), bert_input
             # else:
             #     return img, label, neighbors, torch.as_tensor(0)
         else:
@@ -808,7 +871,7 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
                 label=label_mask=None
                 
             # if self.nbr_label_mode == 'separate_input':
-            return img, label, label_mask, neighbors, nbrs_labels, torch.as_tensor(1), torch.as_tensor(index)
+            return img, label, label_mask, neighbors, nbrs_labels, torch.as_tensor(1), torch.as_tensor(index), bert_input
             # else:
             #     return img, label, label_mask, neighbors, torch.as_tensor(1), torch.as_tensor(index)
     
@@ -1002,7 +1065,7 @@ def load_data_neighbor_v2(args, pseudo_labels=None, pseudo_labels_mask=None):
     return train_source_iter, train_tgt_iter, test_loader
 
 
-def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shuffle=True, all_pseudo_labels_nbr=None): 
+def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shuffle=True, all_pseudo_labels_nbr=None, enc_tokenizer=None): 
     
     THRES = args.nbr_dist_thres
     # nbr_limit=args.nbr_limit
@@ -1041,13 +1104,13 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shu
     # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1220_geolifetrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
     if args.nbr_data_mode == 'mergemin5':
         nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0110_geolifetrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_mergemin5.npy'%THRES, allow_pickle=True)
-        train_dataset_src = create_single_dataset_idx_v3(train_x, train_y, nbr_idx_tuple, total_trips, pos_trips, dataset='src', nbr_limit=args.nbr_limit, neighbor_labels=train_y, args=args)
+        train_dataset_src = create_single_dataset_idx_v3(train_x, train_y, nbr_idx_tuple, total_trips, pos_trips, dataset='src', nbr_limit=args.nbr_limit, neighbor_labels=train_y, args=args, enc_tokenizer=enc_tokenizer)
     elif args.nbr_data_mode == 'mergenomin':
         nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0315_geolifetrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_mergenomin.npy'%THRES, allow_pickle=True)
-        train_dataset_src = create_single_dataset_idx_v3(train_x, train_y, nbr_idx_tuple, total_trips, pos_trips, dataset='src', nbr_limit=args.nbr_limit, neighbor_labels=train_y, args=args)
+        train_dataset_src = create_single_dataset_idx_v3(train_x, train_y, nbr_idx_tuple, total_trips, pos_trips, dataset='src', nbr_limit=args.nbr_limit, neighbor_labels=train_y, args=args, enc_tokenizer=enc_tokenizer)
     elif args.nbr_data_mode == 'mergetoori':
         nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0124_geolifetrain_100neighbor_inter_find_neighbor_perpts_idxonly_thres%dm_mergetoori_min50.npy'%THRES, allow_pickle=True)
-        train_dataset_src = create_single_dataset_idx_v4(train_x, train_y, nbr_idx_tuple, total_trips, pos_trips, dataset='src', nbr_limit=args.nbr_limit, neighbor_labels=train_y, args=args)
+        train_dataset_src = create_single_dataset_idx_v4(train_x, train_y, nbr_idx_tuple, total_trips, pos_trips, dataset='src', nbr_limit=args.nbr_limit, neighbor_labels=train_y, args=args, enc_tokenizer=enc_tokenizer)
     else:
         raise NotImplementedError
     
@@ -1110,13 +1173,13 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shu
         pseudo_labels_mask = np.array(pseudo_labels_mask)
     if args.nbr_data_mode == 'mergemin5':
         nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0110_mtltrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_mergemin5.npy'%THRES, allow_pickle=True)
-        train_dataset_tgt = create_single_dataset_idx_v3(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args)
+        train_dataset_tgt = create_single_dataset_idx_v3(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args, enc_tokenizer=enc_tokenizer)
     elif args.nbr_data_mode == 'mergenomin':
         nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0315_mtltrain_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_mergenomin.npy'%THRES, allow_pickle=True)
-        train_dataset_tgt = create_single_dataset_idx_v3(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args)
+        train_dataset_tgt = create_single_dataset_idx_v3(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args, enc_tokenizer=enc_tokenizer)
     elif args.nbr_data_mode == 'mergetoori':
         nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0124_mtltrain_100neighbor_inter_find_neighbor_perpts_idxonly_thres%dm_mergetoori_min50.npy'%THRES, allow_pickle=True)
-        train_dataset_tgt = create_single_dataset_idx_v4(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args)
+        train_dataset_tgt = create_single_dataset_idx_v4(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args, enc_tokenizer=enc_tokenizer)
     else:
         raise NotImplementedError
     # train_dataset_tgt = create_single_dataset_idx_v3(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit)
@@ -1128,13 +1191,13 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shu
     # nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/1220_mtltest_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_merge.npy'%THRES, allow_pickle=True)
     if args.nbr_data_mode == 'mergemin5':
         nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0110_mtltest_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_mergemin5.npy'%THRES, allow_pickle=True)
-        test_dataset = create_single_dataset_idx_v3(test_x, test_y, nbr_idx_tuple, total_trips, pos_trips, part='test', dataset='tgt', nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args)
+        test_dataset = create_single_dataset_idx_v3(test_x, test_y, nbr_idx_tuple, total_trips, pos_trips, part='test', dataset='tgt', nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args, enc_tokenizer=enc_tokenizer)
     elif args.nbr_data_mode == 'mergenomin':
         nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0315_mtltest_100neighbor_inter_find_neighbor_perpts_min10pts_idxonly_thres%dm_mergenomin.npy'%THRES, allow_pickle=True)
-        test_dataset = create_single_dataset_idx_v3(test_x, test_y, nbr_idx_tuple, total_trips, pos_trips, part='test', dataset='tgt', nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args)
+        test_dataset = create_single_dataset_idx_v3(test_x, test_y, nbr_idx_tuple, total_trips, pos_trips, part='test', dataset='tgt', nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args, enc_tokenizer=enc_tokenizer)
     elif args.nbr_data_mode == 'mergetoori':
         nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0124_mtltest_100neighbor_inter_find_neighbor_perpts_idxonly_thres%dm_mergetoori_min50.npy'%THRES, allow_pickle=True)
-        test_dataset = create_single_dataset_idx_v4(test_x, test_y, nbr_idx_tuple, total_trips, pos_trips, part='test', dataset='tgt', nbr_limit=args.nbr_limit, nbrs=train_x_mtl, neighbor_labels=pseudo_labels, args=args)
+        test_dataset = create_single_dataset_idx_v4(test_x, test_y, nbr_idx_tuple, total_trips, pos_trips, part='test', dataset='tgt', nbr_limit=args.nbr_limit, nbrs=train_x_mtl, neighbor_labels=pseudo_labels, args=args, enc_tokenizer=enc_tokenizer)
     else:
         raise NotImplementedError
     # test_dataset = create_single_dataset_idx_v3(test_x, test_y, nbr_idx_tuple, total_trips, pos_trips, part='test', dataset='tgt', nbr_limit=args.nbr_limit)

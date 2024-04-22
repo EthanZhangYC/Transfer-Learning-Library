@@ -16,7 +16,7 @@ import numpy as np
 import pdb
 import operator
 
-also_correct=False
+also_correct=True
 
 filename_list=glob.glob('/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase/*')
 print(filename_list)
@@ -40,8 +40,8 @@ if also_correct:
     for idx,filename in enumerate(filename_list):
         correct_dict = np.load(filename, allow_pickle=True)
         correct_dict = dict(enumerate(correct_dict.flatten(), 1))[1]
-        for k,v in correct_dict.items():
-            print(k,len(v))
+        # for k,v in correct_dict.items():
+        #     print(k,len(v))
         if idx==0:
             for k in correct_dict:
                 total_correct_dict[k]=set(correct_dict[k])
@@ -73,7 +73,7 @@ nbr_idx_tuple = np.load('/home/yichen/TS2Vec/datafiles/0110_mtltest_100neighbor_
 
 
 all_append_list = []
-for i in range(3):
+for i in range(4):
     selected_x = np.take(test_x, list(total_wrong_dict[i]), axis=0)
     selected_y = np.take(test_y, list(total_wrong_dict[i]), axis=0)
     # selected_nbr  = np.take(nbr_idx_tuple, list(total_wrong_dict[i]), axis=0)
@@ -81,7 +81,7 @@ for i in range(3):
 
 if also_correct:
     all_append_list_correct = []
-    for i in range(3):
+    for i in range(4):
         selected_x = np.take(test_x, list(total_correct_dict[i]), axis=0)
         selected_y = np.take(test_y, list(total_correct_dict[i]), axis=0)
         # selected_nbr  = np.take(nbr_idx_tuple, list(total_correct_dict[i]), axis=0)
@@ -111,8 +111,18 @@ if also_correct:
 #         nbrs_list.append(nbr_seg)
 
 if also_correct:
-    with open('/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase_output/0328_wrong_correct_allclass.pickle', 'wb') as f:
+    with open('/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase_output/0331_wrong_correct_allclass.pickle', 'wb') as f:
         pickle.dump([all_append_list,all_append_list_correct], f)
+        # [
+        #     [(wrong0_data,wrong0_label),
+        #      (wrong1_data,wrong1_label),
+        #      (wrong2_data,wrong2_label),
+        #      (wrong3_data,wrong3_label)],
+        #     [(correct0_data,correct0_label),
+        #      (correct1_data,correct1_label),
+        #      (correct2_data,correct2_label),
+        #      (correct3_data,correct3_label)],
+        # ]
 else:
     with open('/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase_output/0328_wrong_allclass.pickle', 'wb') as f:
         pickle.dump([all_append_list], f)
