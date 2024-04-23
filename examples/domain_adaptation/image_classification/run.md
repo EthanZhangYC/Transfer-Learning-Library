@@ -884,7 +884,7 @@ python find_common_failcase.py
 
 
 
-CUDA_VISIBLE_DEVICES=1 \
+CUDA_VISIBLE_DEVICES=0 \
 python mcd_neighbor_v7_bertwithmcd.py \
 --epochs 30 \
 --batch-size 64 \
@@ -900,10 +900,10 @@ python mcd_neighbor_v7_bertwithmcd.py \
 --nbr_dist_thres 20 \
 --nbr_limit 10 \
 --token_max_len 60 \
---prompt_id 1 \
---log logs/0422_mcd_v7_freeze_01_bertcat_ABC_p1_maxlen60_2fc_correctbertinput
+--prompt_id 7 \
+--log logs/0422_mcd_v7_freeze_01_bertcat_ABC_p7_maxlen60_2fc_correctbertinput
 
-CUDA_VISIBLE_DEVICES=9 \
+CUDA_VISIBLE_DEVICES=3 \
 python mcd_neighbor_v7_bertwithmcd.py \
 --epochs 30 \
 --batch-size 64 \
@@ -919,8 +919,8 @@ python mcd_neighbor_v7_bertwithmcd.py \
 --nbr_dist_thres 20 \
 --nbr_limit 10 \
 --token_max_len 60 \
---prompt_id 1 \
---log logs/0422_mcd_v7_freeze_01_bertonly_ABC_p1_maxlen60_2fc_correctbertinput
+--prompt_id 7 \
+--log logs/0422_mcd_v7_freeze_01_bertonly_ABC_p7_maxlen60_2fc_correctbertinput
 
 CUDA_VISIBLE_DEVICES=9 \
 python mcd_neighbor_v7_bertwithmcd.py \
