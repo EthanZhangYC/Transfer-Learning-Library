@@ -788,25 +788,25 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
         #     nbrs_labels = torch.ones([4])/4
         
         
-        
+        # 9dim: x,y, time,dist,v,a,jerk,br,is-real
         if self.enc_tokenizer is not None:
             if self.dataset=='tgt':
-                current_minmax = [(45.230416, 45.9997262293), (-74.31479102, -72.81248199999999), (45.230416, 45.9997262293), (-74.31479102, -72.81248199999999),  \
+                current_minmax = [(45.230416, 45.9997262293), (-74.31479102, -72.81248199999999),  \
                     (0.9999933186918497, 1198.999998648651), (0.0, 50118.17550774085), (0.0, 49.95356703911097), (-9.99348698095659, 9.958323482935628), (-39.64566646191948, 1433.3438889109589), (0.0, 359.95536847383516)]
             else:
-                current_minmax = [(18.249901, 55.975593), (-122.3315333, 126.998528), (18.249901, 55.975593), (-122.3315333, 126.998528), \
+                current_minmax = [(18.249901, 55.975593), (-122.3315333, 126.998528), \
                     (0.9999933186918497, 1198.999998648651), (0.0, 50118.17550774085), (0.0, 49.95356703911097), (-9.99348698095659, 9.958323482935628), (-39.64566646191948, 1433.3438889109589), (0.0, 359.95536847383516)]
         
             pad_mask = (img[:,2]!=0)
             n_nonzero = pad_mask.sum()
-            unnorm_img = img.copy()
-            for i in range(2,9):
-                tmp_max,tmp_min = current_minmax[i][0],current_minmax[i][1]
+            unnorm_img = img.copy() #  x,y,x,y, time,dist,v,a,jerk,br,is-real
+            for i in range(3,7):
+                tmp_max,tmp_min = current_minmax[i][1],current_minmax[i][0]
                 unnorm_img[:,i] = unnorm_img[:,i] * (tmp_max-tmp_min) + tmp_min
             unnorm_img[~pad_mask]=0
-            avg_v, avg_a, avg_j, avg_br = unnorm_img[:,4].sum()/n_nonzero, unnorm_img[:,5].sum()/n_nonzero, unnorm_img[:,6].sum()/n_nonzero, unnorm_img[:,7].sum()/n_nonzero
-            max_v, max_a, max_j, max_br = unnorm_img[:,4][pad_mask].max(), unnorm_img[:,5][pad_mask].max(), unnorm_img[:,6][pad_mask].max(), unnorm_img[:,7][pad_mask].max()
-            min_v, min_a, min_j, min_br = unnorm_img[:,4][pad_mask].min(), unnorm_img[:,5][pad_mask].min(), unnorm_img[:,6][pad_mask].min(), unnorm_img[:,7][pad_mask].min()
+            avg_dist, avg_v, avg_a, avg_j, avg_br = unnorm_img[:,3].sum()/n_nonzero, unnorm_img[:,4].sum()/n_nonzero, unnorm_img[:,5].sum()/n_nonzero, unnorm_img[:,6].sum()/n_nonzero, unnorm_img[:,7].sum()/n_nonzero
+            max_dist, max_v, max_a, max_j, max_br = unnorm_img[:,3][pad_mask].max(), unnorm_img[:,4][pad_mask].max(), unnorm_img[:,5][pad_mask].max(), unnorm_img[:,6][pad_mask].max(), unnorm_img[:,7][pad_mask].max()
+            min_dist, min_v, min_a, min_j, min_br = unnorm_img[:,3][pad_mask].min(), unnorm_img[:,4][pad_mask].min(), unnorm_img[:,5][pad_mask].min(), unnorm_img[:,6][pad_mask].min(), unnorm_img[:,7][pad_mask].min()
             
             
             paragraph1 = 'The average speed, acceleration, jerk, bearing rate of this segment are {}, {}, {}, and {}, respectively.'.format(
@@ -821,19 +821,37 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
                 min_v, min_a, min_j, min_br) # gpt polished
             
             real_pt_ratio, mask_ratio = unnorm_img[:,-1].sum()/650*100, n_nonzero/650*100
-            paragraph4 = 'This is a trajectory length 650. {}%% of it are padding points and {}%% of it are interpolated points, where the interpolated points was inserted if the time interval between points is large. Its average speed, acceleration, jerk, and bearing rate are {}, {}, {}, and {}, respectively. Furthermore, the trajectory reaches maximum values of speed, acceleration, jerk, and bearing rate at {}, {}, {}, and {}. Conversely, the minimum speed, acceleration, jerk, and bearing rate of the trajectory are {}, {}, {}, and {}, respectively.'.format(
+            paragraph4 = 'This is a trajectory length 650. {}% of it are padding points and {}% of it are interpolated points, where the interpolated points was inserted if the time interval between points is large. Its average speed, acceleration, jerk, and bearing rate are {}, {}, {}, and {}, respectively. Furthermore, the trajectory reaches maximum values of speed, acceleration, jerk, and bearing rate at {}, {}, {}, and {}. Conversely, the minimum speed, acceleration, jerk, and bearing rate of the trajectory are {}, {}, {}, and {}, respectively.'.format(
                 real_pt_ratio, mask_ratio, 
                 avg_v, avg_a, avg_j, avg_br, 
                 max_v, max_a, max_j, max_br, 
                 min_v, min_a, min_j, min_br) # add real-pt and mask ratio
             
             nbrs_labels_ratio = nbrs_labels * 100
-            paragraph5 = 'This is a trajectory length 650. {}%% of it are padding points and {}%% of it are interpolated points, where the interpolated points was inserted if the time interval between points is large. Its average speed, acceleration, jerk, and bearing rate are {}, {}, {}, and {}, respectively. Furthermore, the trajectory reaches maximum values of speed, acceleration, jerk, and bearing rate at {}, {}, {}, and {}. Conversely, the minimum speed, acceleration, jerk, and bearing rate of the trajectory are {}, {}, {}, and {}, respectively. Among its neighbor segments, {}%% of them are walking trajectory, {}%% of them are riding trajectory, {}%% of them are car trajectory, and {}%% of them are public transport trajectory'.format(
+            paragraph5 = 'This is a trajectory length 650. {}% of it are padding points and {}% of it are interpolated points, where the interpolated points was inserted if the time interval between points is large. Its average speed, acceleration, jerk, and bearing rate are {}, {}, {}, and {}, respectively. Furthermore, the trajectory reaches maximum values of speed, acceleration, jerk, and bearing rate at {}, {}, {}, and {}. Conversely, the minimum speed, acceleration, jerk, and bearing rate of the trajectory are {}, {}, {}, and {}, respectively. Among its neighbor segments, {}% of them are walking trajectory, {}% of them are riding trajectory, {}% of them are car trajectory, and {}% of them are public transport trajectory'.format(
                 real_pt_ratio, mask_ratio, 
                 avg_v, avg_a, avg_j, avg_br, 
                 max_v, max_a, max_j, max_br, 
                 min_v, min_a, min_j, min_br, 
                 nbrs_labels_ratio[0], nbrs_labels_ratio[1], nbrs_labels_ratio[2], nbrs_labels_ratio[3]) # add nbr label ratio
+            
+            total_time = np.sum(unnorm_img[:,2])
+            total_dist = np.sum(unnorm_img[:,3])
+            paragraph6 = 'The total time of this a trajectory is {} seconds and total distance is {} meters. {}% of it are padding points and {}% of it are interpolated points, where the interpolated points was inserted if the time interval between points is large. Its average speed, acceleration, jerk, and bearing rate are {}, {}, {}, and {}, respectively. Furthermore, the trajectory reaches maximum values of speed, acceleration, jerk, and bearing rate at {}, {}, {}, and {}. Conversely, the minimum speed, acceleration, jerk, and bearing rate of the trajectory are {}, {}, {}, and {}, respectively. Among its neighbor segments, {}% of them are walking trajectory, {}% of them are riding trajectory, {}% of them are car trajectory, and {}% of them are public transport trajectory'.format(
+                total_time,total_dist,
+                real_pt_ratio, mask_ratio, 
+                avg_v, avg_a, avg_j, avg_br, 
+                max_v, max_a, max_j, max_br, 
+                min_v, min_a, min_j, min_br, 
+                nbrs_labels_ratio[0], nbrs_labels_ratio[1], nbrs_labels_ratio[2], nbrs_labels_ratio[3]) # length -> total time and dist
+            
+            paragraph7 = 'The total time of this a trajectory is {} seconds and total distance is {} meters. {}% of it are padding points and {}% of it are interpolated points, where the interpolated points was inserted if the time interval between points is large. Its average speed, acceleration, jerk, and bearing rate are {}, {}, {}, and {}, respectively. Furthermore, the trajectory reaches maximum values of speed, acceleration, jerk, and bearing rate at {}, {}, {}, and {}. Conversely, the minimum speed, acceleration, jerk, and bearing rate of the trajectory are {}, {}, {}, and {}, respectively. Among its neighbor segments, {}% of them are walking trajectory, {}% of them are riding trajectory, {}% of them are car trajectory, and {}% of them are public transport trajectory'.format(
+                total_time,total_dist,
+                real_pt_ratio, mask_ratio, 
+                avg_v, avg_a, avg_j, avg_br, 
+                max_v, max_a, max_j, max_br, 
+                min_v, min_a, min_j, min_br, 
+                nbrs_labels_ratio[0], nbrs_labels_ratio[1], nbrs_labels_ratio[2], nbrs_labels_ratio[3]) # add metrics
             
             bert_input = self.enc_tokenizer(eval('paragraph%d'%self.prompt_id), max_length = self.token_max_len, truncation = True, padding = "max_length")
             # bert_input = self.enc_tokenizer(paragraph, add_special_tokens = True, max_length = 60, return_attention_mask = True, truncation = True, padding = "max_length")
