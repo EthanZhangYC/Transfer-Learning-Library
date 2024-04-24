@@ -903,25 +903,6 @@ python mcd_neighbor_v7_bertwithmcd.py \
 --prompt_id 7 \
 --log logs/0422_mcd_v7_freeze_01_bertcat_ABC_p7_maxlen60_2fc_correctbertinput
 
-CUDA_VISIBLE_DEVICES=3 \
-python mcd_neighbor_v7_bertwithmcd.py \
---epochs 30 \
---batch-size 64 \
--i 294 \
---seed 42 \
---lr 5e-4 \
---wd 1e-4 \
---interpolatedlinear \
---trade-off 1 \
---trade-off-entropy 0.1 \
---nbr_mode bertonly_add \
---steps_list ABC \
---nbr_dist_thres 20 \
---nbr_limit 10 \
---token_max_len 60 \
---prompt_id 7 \
---log logs/0422_mcd_v7_freeze_01_bertonly_ABC_p7_maxlen60_2fc_correctbertinput
-
 CUDA_VISIBLE_DEVICES=9 \
 python mcd_neighbor_v7_bertwithmcd.py \
 --epochs 30 \
@@ -938,8 +919,10 @@ python mcd_neighbor_v7_bertwithmcd.py \
 --nbr_dist_thres 20 \
 --nbr_limit 10 \
 --token_max_len 60 \
---prompt_id 1 \
---log logs/test
+--prompt_id 7 \
+--log logs/0423_mcd_v7_freeze_01_bertonly_ABC_p7_maxlen60_2fc_correctbertinput
+
+
 
 
 
@@ -965,5 +948,30 @@ python mcd_neighbor_v7_bertwithmcd.py \
 
 
 
+
+
+CUDA_VISIBLE_DEVICES=9 \
+python mcd_neighbor_v6_bert.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_add_crosssim \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--token_max_len 60 \
+--bert_out_dim 64 \
+--prompt_id 7 \
+--log logs/0424_mcd_v6_freeze_01_entpropor0666_v2_p7_bertadd_crosssim_maxlen60_2fc_bertdim64
 
 

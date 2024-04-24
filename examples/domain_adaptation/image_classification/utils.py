@@ -715,56 +715,55 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
     def __getitem__(self, index):
         img = self.imgs[index]
         
-        nbr_idxes = self.neighbors_idx[index]
-        if len(nbr_idxes)>self.nbr_limit:
-            each_len = np.array([np.sum(np.array(nbr_idx)[:,2]-np.array(nbr_idx)[:,1]) for nbr_idx in nbr_idxes])
-            # each_len = nbr_idxes[:,2]-nbr_idxes[:,1]
-            selected_idx = np.argpartition(-each_len, self.nbr_limit)[:self.nbr_limit]
-            nbr_idxes = np.take(nbr_idxes,selected_idx,axis=0)
-        
-        nbrs_list = []
-        mask_list = []
-        nbrs_list_label = []
-        for nbr_idx_list in nbr_idxes:
-            if len(nbr_idx_list)==1:
-                nbr_idx = nbr_idx_list[0]
-                each_nbr,tmp_low,tmp_high,tmp_low_anchor,tmp_high_anchor,avg_pair_dist = nbr_idx
-                each_nbr,tmp_low,tmp_high,tmp_low_anchor,tmp_high_anchor = int(each_nbr),int(tmp_low),int(tmp_high),int(tmp_low_anchor),int(tmp_high_anchor)
-                trip_id = self.pos_trips[each_nbr][0]
-                tmp_trip = self.total_trips[trip_id]
-                nbr_seg = change_to_new_channel_v4(tmp_trip[tmp_low:tmp_high,:], 650, tmp_low_anchor, tmp_high_anchor)
-            else:
-                nbr_seg = np.zeros([650,10])
-                for nbr_idx in nbr_idx_list:
+        if self.nbr_limit>0:
+            nbr_idxes = self.neighbors_idx[index]
+            if len(nbr_idxes)>self.nbr_limit:
+                each_len = np.array([np.sum(np.array(nbr_idx)[:,2]-np.array(nbr_idx)[:,1]) for nbr_idx in nbr_idxes])
+                # each_len = nbr_idxes[:,2]-nbr_idxes[:,1]
+                selected_idx = np.argpartition(-each_len, self.nbr_limit)[:self.nbr_limit]
+                nbr_idxes = np.take(nbr_idxes,selected_idx,axis=0)
+            
+            nbrs_list = []
+            mask_list = []
+            nbrs_list_label = []
+            for nbr_idx_list in nbr_idxes:
+                if len(nbr_idx_list)==1:
+                    nbr_idx = nbr_idx_list[0]
                     each_nbr,tmp_low,tmp_high,tmp_low_anchor,tmp_high_anchor,avg_pair_dist = nbr_idx
                     each_nbr,tmp_low,tmp_high,tmp_low_anchor,tmp_high_anchor = int(each_nbr),int(tmp_low),int(tmp_high),int(tmp_low_anchor),int(tmp_high_anchor)
                     trip_id = self.pos_trips[each_nbr][0]
                     tmp_trip = self.total_trips[trip_id]
-                    nbr_seg[tmp_low_anchor:tmp_high_anchor]=tmp_trip[tmp_low:tmp_high,:]
-                nbr_seg = change_to_new_channel_v5(nbr_seg, 650)
-                
-            # # nbr_seg = change_to_new_channel_v3(tmp_trip[tmp_low:tmp_high,:], 650, label=None)
-            # nbr_seg = change_to_new_channel_v4(tmp_trip[tmp_low:tmp_high,:], 650, tmp_low_anchor, tmp_high_anchor)
-            if self.neighbor_labels is not None:
-                nbr_label = self.neighbor_labels[each_nbr]
-                nbrs_list_label.append(nbr_label)
-            nbrs_list.append(nbr_seg)
-        
-                
-        if self.random_mask_nbr_ratio!=1 and self.part=='train':
-            n_nbr = len(nbrs_list)
-            nbrs_list = random.sample(nbrs_list, math.ceil(n_nbr*self.random_mask_nbr_ratio))
+                    nbr_seg = change_to_new_channel_v4(tmp_trip[tmp_low:tmp_high,:], 650, tmp_low_anchor, tmp_high_anchor)
+                else:
+                    nbr_seg = np.zeros([650,10])
+                    for nbr_idx in nbr_idx_list:
+                        each_nbr,tmp_low,tmp_high,tmp_low_anchor,tmp_high_anchor,avg_pair_dist = nbr_idx
+                        each_nbr,tmp_low,tmp_high,tmp_low_anchor,tmp_high_anchor = int(each_nbr),int(tmp_low),int(tmp_high),int(tmp_low_anchor),int(tmp_high_anchor)
+                        trip_id = self.pos_trips[each_nbr][0]
+                        tmp_trip = self.total_trips[trip_id]
+                        nbr_seg[tmp_low_anchor:tmp_high_anchor]=tmp_trip[tmp_low:tmp_high,:]
+                    nbr_seg = change_to_new_channel_v5(nbr_seg, 650)
+                    
+                # # nbr_seg = change_to_new_channel_v3(tmp_trip[tmp_low:tmp_high,:], 650, label=None)
+                # nbr_seg = change_to_new_channel_v4(tmp_trip[tmp_low:tmp_high,:], 650, tmp_low_anchor, tmp_high_anchor)
+                if self.neighbor_labels is not None:
+                    nbr_label = self.neighbor_labels[each_nbr]
+                    nbrs_list_label.append(nbr_label)
+                nbrs_list.append(nbr_seg)
+                    
+            if self.random_mask_nbr_ratio!=1 and self.part=='train':
+                n_nbr = len(nbrs_list)
+                nbrs_list = random.sample(nbrs_list, math.ceil(n_nbr*self.random_mask_nbr_ratio))
 
-
-        if len(nbr_idxes)==0:
-            neighbors = img[np.newaxis,...]
-            # mask_list = torch.ones([1,650])
-            # # distances = np.array([0.])
-        else:
-            neighbors = np.stack(nbrs_list)
-            # mask_list = np.stack(mask_list)
-            # # label_list=np.stack(label_list)
-            # mask_list = torch.as_tensor(mask_list.astype(np.int))
+            if len(nbr_idxes)==0:
+                neighbors = img[np.newaxis,...]
+                # mask_list = torch.ones([1,650])
+                # # distances = np.array([0.])
+            else:
+                neighbors = np.stack(nbrs_list)
+                # mask_list = np.stack(mask_list)
+                # # label_list=np.stack(label_list)
+                # mask_list = torch.as_tensor(mask_list.astype(np.int))
 
 
         if self.transform is not None:
@@ -772,20 +771,21 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
             neighbors = self.transform(neighbors)
             
         
-        
-        # if len(nbrs_list_label)>0:
-        nbrs_list_label = np.array(nbrs_list_label)
-        nbrs_labels = np.array([np.sum(nbrs_list_label==0),np.sum(nbrs_list_label==1),np.sum(nbrs_list_label==2),np.sum(nbrs_list_label==3)])
-        nbrs_labels = nbrs_labels / (np.sum(nbrs_labels)+1)
-        nbrs_labels = nbrs_labels.astype(np.float32)
-        if self.nbr_label_mode == 'combine_each_pt':
-            nbrs_labels = np.tile(nbrs_labels[np.newaxis,::], [650,1])
-            img = np.concatenate([img, nbrs_labels], axis=1)
-            img[img[:,2]==0] = 0.
+        if self.nbr_limit>0:
+            nbrs_list_label = np.array(nbrs_list_label)
+            nbrs_labels = np.array([np.sum(nbrs_list_label==0),np.sum(nbrs_list_label==1),np.sum(nbrs_list_label==2),np.sum(nbrs_list_label==3)])
+            nbrs_labels = nbrs_labels / (np.sum(nbrs_labels)+1)
+            nbrs_labels = nbrs_labels.astype(np.float32)
+            if self.nbr_label_mode == 'combine_each_pt':
+                nbrs_labels = np.tile(nbrs_labels[np.newaxis,::], [650,1])
+                img = np.concatenate([img, nbrs_labels], axis=1)
+                img[img[:,2]==0] = 0.
+            else:
+                nbrs_labels = torch.as_tensor(nbrs_labels)
+            neighbors = torch.as_tensor(neighbors.astype(np.float32))
         else:
-            nbrs_labels = torch.as_tensor(nbrs_labels)
-        # else:
-        #     nbrs_labels = torch.ones([4])/4
+            neighbors=None
+            nbrs_labels=[0.25,0.25,0.25,0.25]
         
         
         # 9dim: x,y, time,dist,v,a,jerk,br,is-real
@@ -859,8 +859,8 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
         else:
             bert_input = None
         
+        
         img = torch.as_tensor(img) #650,9
-        neighbors = torch.as_tensor(neighbors.astype(np.float32))
         # distances = torch.as_tensor(distances.astype(np.float32))
         
 

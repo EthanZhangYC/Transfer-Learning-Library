@@ -133,11 +133,11 @@ def main(args: argparse.Namespace):
     for epoch in range(args.epochs):
         # train for one epoch
         train(train_source_iter, train_target_iter, G, F1, F2, attn_net, optimizer_g, optimizer_f, epoch, args, multihead_attn, \
-            nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens)
+            nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer)
 
         # evaluate on validation set
         results = validate(val_loader, G, F1, F2, attn_net, args, multihead_attn, \
-            nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens)
+            nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer)
 
         # remember best acc@1 and save checkpoint
         torch.save({
@@ -172,7 +172,7 @@ def main(args: argparse.Namespace):
 
 def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterator,
           G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net: nn.Module,
-          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens):
+          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer):
     batch_time = AverageMeter('Time', ':3.1f')
     data_time = AverageMeter('Data', ':3.1f')
     losses = AverageMeter('Loss', ':3.2f')
@@ -330,6 +330,9 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
             bert_embedding = bert_model.embeddings(bert_input)
             if 'learnable' in args.nbr_mode:
                 bert_embedding = torch.cat([bert_learnable_tokens.unsqueeze(0).tile(args.batch_size*2,1,1) ,bert_embedding],dim=1) #128,10,768 vs #128,60,768
+            if 'cross_sim' in args.nbr_mode:
+                raise NotImplementedError
+                bert_input_class = ['A trajectory of person','A trajectory of bike','A trajectory of car','A trajectory of public transport']
             bert_feature = bert_model.encoder(bert_embedding) #128.70.768
             bert_feature = bert_model.pooler(bert_feature[0]) #128,768
             bert_feature = dim_converter(bert_feature)
@@ -353,9 +356,25 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                 bert_embedding = bert_model.embeddings(bert_input)
                 if 'learnable' in args.nbr_mode:
                     bert_embedding = torch.cat([bert_learnable_tokens.unsqueeze(0).tile(args.batch_size*2,1,1) ,bert_embedding],dim=1) #128,10,768 vs #128,60,768
+                
+                if 'crosssim' in args.nbr_mode:
+                    raise NotImplementedError
+                    with torch.no_grad():
+                        bert_word_class = ['A trajectory of person','A trajectory of bike','A trajectory of car','A trajectory of public transport']
+                        bert_input_class = []
+                        for sentence in bert_word_class:
+                            bert_input_class.append(torch.as_tensor(enc_tokenizer(sentence, max_length = args.token_max_len, truncation = True, padding = "max_length")['input_ids']))
+                        bert_input_class = torch.stack(bert_input_class).to(device)
+                        bert_embedding_class = bert_model.embeddings(bert_input_class)
+                    bert_embedding = torch.cat([bert_embedding, bert_embedding_class],dim=0) #128,60,768 vs 4,60,768
+                    
                 bert_feature = bert_model.encoder(bert_embedding) #128.70.768
                 bert_feature = bert_model.pooler(bert_feature[0]) #128,768
                 bert_feature = dim_converter(bert_feature)
+                
+                if 'crosssim' in args.nbr_mode:
+                    bert_feature_class = bert_feature[-4:]
+                    bert_feature = bert_feature[:-4]
                 bert_feature_s,bert_feature_t = bert_feature[:bs],bert_feature[bs:]
                 
                 if 'cat' in args.nbr_mode:
@@ -365,8 +384,14 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                     g_s = g_s + bert_feature_s
                     g_t = g_t + bert_feature_t
                 g = torch.cat((g_s, g_t), dim=0)
-                y_1 = F1(g, aux_feat)
-                y_2 = F2(g, aux_feat)
+                
+                if 'crosssim' in args.nbr_mode:
+                    pdb.set_trace()
+                    y_1 = torch.matmul(g,bert_feature_class.T) # 128,64 x 64,4 -> 128,4
+                    y_1=y_2=None
+                else:
+                    y_1 = F1(g, aux_feat)
+                    y_2 = F2(g, aux_feat)
                 
             else:
                 
@@ -1020,7 +1045,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
             progress.display(i)
 
 
-def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens) -> Tuple[float, float]:
+def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer) -> Tuple[float, float]:
     batch_time = AverageMeter('Time', ':6.3f')
     top1_1 = AverageMeter('Acc_1', ':6.2f')
     top1_2 = AverageMeter('Acc_2', ':6.2f')
