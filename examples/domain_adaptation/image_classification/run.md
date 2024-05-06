@@ -917,7 +917,7 @@ python mcd_neighbor_v7_bertwithmcd.py \
 --nbr_mode bertonly_add \
 --steps_list ABC \
 --nbr_dist_thres 20 \
---nbr_limit 10 \
+--nbr_limit 0 \
 --token_max_len 60 \
 --prompt_id 7 \
 --log logs/0423_mcd_v7_freeze_01_bertonly_ABC_p7_maxlen60_2fc_correctbertinput
@@ -950,7 +950,7 @@ python mcd_neighbor_v7_bertwithmcd.py \
 
 
 
-CUDA_VISIBLE_DEVICES=9 \
+CUDA_VISIBLE_DEVICES=4 \
 python mcd_neighbor_v6_bert.py \
 --epochs 30 \
 --batch-size 64 \
@@ -963,7 +963,7 @@ python mcd_neighbor_v6_bert.py \
 --trade-off 1 \
 --trade-off-entropy 0.1 \
 --trade-off-pseudo 0.1 \
---nbr_mode bert_add_crosssim \
+--nbr_mode bert_add \
 --nbr_dist_thres 20 \
 --nbr_limit 0 \
 --pseudo_mode entropyproportion \
@@ -972,6 +972,60 @@ python mcd_neighbor_v6_bert.py \
 --token_max_len 60 \
 --bert_out_dim 64 \
 --prompt_id 7 \
---log logs/0424_mcd_v6_freeze_01_entpropor0666_v2_p7_bertadd_crosssim_maxlen60_2fc_bertdim64
+--log logs/0423_mcd_v6_freeze_01_entpropor0666_v2_p7_bertadd_crosssim_maxlen60_2fc_bertdim64_noconverter
+
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd_neighbor_v6_bert.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_add_crosssim_learnableclass \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--token_max_len 60 \
+--token_len 10 \
+--bert_out_dim 64 \
+--prompt_id 7 \
+--log logs/0425_mcd_v6_freeze_01_entpropor0666_v2_p7_bertadd_crosssim_learnableclass_maxlen60_2fc_bertdim64
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd_neighbor_v6_bert.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v3 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_add \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--token_max_len 60 \
+--bert_out_dim 64 \
+--prompt_id 7 \
+--log logs/0506_mcd_v6_freeze_01_entpropor0666_v3_p7_bertadd_maxlen60_2fc_protoweight
 
 

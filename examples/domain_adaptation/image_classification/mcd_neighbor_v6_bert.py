@@ -108,6 +108,7 @@ def main(args: argparse.Namespace):
     enc_tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")#, force_download=True)
     bert_model = AutoModel.from_pretrained("bert-base-uncased", config=encoder_config).to(device)#, force_download=True).to(device)    
     bert_learnable_tokens = torch.nn.Parameter(torch.rand([args.token_len,768]), requires_grad=True)
+    bert_learnable_tokens_class = torch.nn.Parameter(torch.rand([args.token_len,768]), requires_grad=True)
     # print(bert_encoder)
     # bert_embeddings = BertEmbeddings(config)
     # bert_encoder = BertEncoder(config)
@@ -145,7 +146,8 @@ def main(args: argparse.Namespace):
     optimizer_g = Adam([
         {"params": G.parameters()},
         {"params": dim_converter.parameters()},
-        {"params": bert_learnable_tokens}
+        {"params": bert_learnable_tokens},
+        {"params": bert_learnable_tokens_class}
     ], args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
     optimizer_f = Adam([
         {"params": F1.parameters()},
@@ -158,6 +160,7 @@ def main(args: argparse.Namespace):
     ], args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
     
     bert_learnable_tokens = bert_learnable_tokens.to(device)
+    bert_learnable_tokens_class = bert_learnable_tokens_class.to(device)
 
    
 
@@ -192,14 +195,15 @@ def main(args: argparse.Namespace):
     best_acc1 = 0.
     best_results = None
     best_epoch = 0
+    proto_s = torch.rand(5,64).to(device)
     for epoch in range(args.epochs):
         # train for one epoch
-        train(train_source_iter, train_target_iter, G, F1, F2, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t, multihead_attn, \
-            nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer)
+        proto_s = train(train_source_iter, train_target_iter, G, F1, F2, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t, multihead_attn, \
+            nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s)
 
         # evaluate on validation set
         results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn, \
-            nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer)
+            nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class)
 
         # remember best acc@1 and save checkpoint
         torch.save({
@@ -211,7 +215,8 @@ def main(args: argparse.Namespace):
             'nbr_label_encoder':nbr_label_encoder.state_dict(),
             'bert_encoder':bert_model.state_dict(),
             'dim_converter':dim_converter.state_dict(),
-            'bert_learnable_tokens':bert_learnable_tokens
+            'bert_learnable_tokens':bert_learnable_tokens,
+            'proto_s': proto_s
         }, logger.get_checkpoint_path('latest'))
         if max(results) > best_acc1:
             shutil.copy(logger.get_checkpoint_path('latest'), logger.get_checkpoint_path('best'))
@@ -298,7 +303,7 @@ def softmax_mse_loss(input_logits, target_logits, masks=None):
 
 def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterator,
           G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net: nn.Module,
-          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer):
+          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s):
     batch_time = AverageMeter('Time', ':3.1f')
     data_time = AverageMeter('Data', ':3.1f')
     losses = AverageMeter('Loss', ':3.2f')
@@ -327,11 +332,15 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
     attn_net.train()
     multihead_attn.train()
     nbr_label_encoder.train()
+    
+    
+
+    
 
     end = time.time()
     for i in range(args.iters_per_epoch):
-        # if i>5:
-        #     break
+        if i>5:
+            break
 
         # if args.nbr_label_mode == 'separate_input':
         x_ori_src, labels_s, x_ori_src_neighbor, src_neighbor_labels, labels_domain_src, bert_input_src  = next(train_src_iter) 
@@ -406,13 +415,14 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                 bert_embedding = torch.cat([bert_learnable_tokens.unsqueeze(0).tile(args.batch_size*2,1,1) ,bert_embedding],dim=1) #128,10,768 vs #128,60,768
             
             if 'crosssim' in args.nbr_mode:
-                with torch.no_grad():
-                    bert_word_class = ['A trajectory of person','A trajectory of bike','A trajectory of car','A trajectory of public transport']
-                    bert_input_class = []
-                    for sentence in bert_word_class:
-                        bert_input_class.append(torch.as_tensor(enc_tokenizer(sentence, max_length = args.token_max_len, truncation = True, padding = "max_length")['input_ids']))
-                    bert_input_class = torch.stack(bert_input_class).to(device)
-                    bert_embedding_class = bert_model.embeddings(bert_input_class)
+                bert_word_class = ['A trajectory of person','A trajectory of bike','A trajectory of car','A trajectory of public transport']
+                bert_input_class = []
+                for sentence in bert_word_class:
+                    bert_input_class.append(torch.as_tensor(enc_tokenizer(sentence, max_length = args.token_max_len, truncation = True, padding = "max_length")['input_ids']))
+                bert_input_class = torch.stack(bert_input_class).to(device)
+                bert_embedding_class = bert_model.embeddings(bert_input_class)
+                if 'learnableclass' in args.nbr_mode:
+                    bert_embedding = torch.cat([bert_learnable_tokens_class.unsqueeze(0).tile(4,1,1),bert_embedding_class],dim=1) #10,768 vs #4,60,768
                 bert_embedding = torch.cat([bert_embedding, bert_embedding_class],dim=0) #128,60,768 vs 4,60,768
                 
             bert_feature = bert_model.encoder(bert_embedding) #128.70.768
@@ -420,7 +430,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
             bert_feature = dim_converter(bert_feature)
             
             if 'crosssim' in args.nbr_mode:
-                bert_feature_class = bert_feature[-4:]
+                bert_feature_class = bert_feature[-4-args.token_len:]
                 bert_feature = bert_feature[:-4]
             bert_feature_s,bert_feature_t = bert_feature[:bs],bert_feature[bs:]
             
@@ -432,6 +442,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                 g_t = g_t + bert_feature_t
             g = torch.cat((g_s, g_t), dim=0)
             
+            
             if 'crosssim' in args.nbr_mode:
                 y_1 = torch.matmul(g,bert_feature_class.T) # 128,64 x 64,4 -> 128,4
             else:
@@ -440,7 +451,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
             y1_s, y1_t = y_1.chunk(2, dim=0)
             
         else:
-            if args.nbr_limit>0:
+            if args.nbr_limit<=0:
                 y_1 = F1(g, aux_feat)
                 y_1 = F.softmax(y_1, dim=1)
                 y1_s, y1_t = y_1.chunk(2, dim=0)
@@ -776,7 +787,26 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                         g_t = g_t + feat_tgt_avgpool_neighbors
                     g = torch.cat((g_s, g_t), dim=0)
                 
+        
+        num_classes=4
+        with torch.no_grad():
+            if args.update_strategy == 'iter':
+                mask_tar = torch.eq(torch.tensor([[0,1,2,3]]).cuda(),labels_s.contiguous().view(-1, 1)).float() # [bs, n_class]
+                count_tar = mask_tar.sum(axis=0) #[n_class]
+                proto_batch_tar = torch.matmul(mask_tar.T, g_s) # [n_class,dim]
+                proto_batch_tar = proto_batch_tar.T / count_tar # [dim,n_class]
+                proto_s = args.proto_momentum * proto_s + (1-args.proto_momentum) * proto_batch_tar
             
+            feat_proto_distance = -torch.ones((bs, num_classes)).cuda()
+            for i in range(num_classes):
+                feat_proto_distance[:, i] = torch.norm(proto_s[:,i]-g_t, 2, dim=1)
+            
+            feat_nearest_proto_distance, feat_nearest_proto = feat_proto_distance.min(dim=1, keepdim=True)
+            feat_proto_distance = feat_proto_distance - feat_nearest_proto_distance
+            pseudo_label_from_proto = F.softmax(-feat_proto_distance, dim=1) # [bs,n_class]
+            
+        mask_aux = torch.eq(torch.tensor([np.arange(num_classes)]).cuda(),labels_t.contiguous().view(-1, 1)).float() #[bs,n_class]
+        reliable_weight = (pseudo_label_from_proto * mask_aux).sum(dim=1) #[bs,n_class]
         
         # # y_1 = F1(g, aux_feat)
         # # # y_2 = F2(g, aux_feat)
@@ -850,6 +880,14 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                 loss_consistency =  loss_consistency * args.trade_off_consis / args.n_mask_late
                 
             loss = loss_srcce + loss_ent  + loss_tgtce + loss_consistency
+        
+        elif args.loss_mode=='v3':
+            loss_srcce = F.cross_entropy(y1_s, labels_s)
+            loss_ent = entropy(y1_t) * args.trade_off_entropy
+            pdb.set_trace()
+            loss_tgtce = torch.mean(F.cross_entropy(y1_t, labels_t, reduce=False) * reliable_weight) * args.trade_off_pseudo
+            loss_consistency=torch.tensor(0.).to(device)
+            loss = loss_srcce + loss_ent  + loss_tgtce + loss_consistency
             
             
         else:
@@ -870,9 +908,11 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
         end = time.time()
         if i % args.print_freq == 0:
             progress.display(i)
+            
+    return proto_s
 
 
-def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer) -> Tuple[float, float]:
+def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class) -> Tuple[float, float]:
     batch_time = AverageMeter('Time', ':6.3f')
     top1_1 = AverageMeter('Acc_1', ':6.2f')
     top1_2 = AverageMeter('Acc_2', ':6.2f')
@@ -975,7 +1015,7 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
                     y1 = F1(g, aux_feat)
 
             else:
-                if args.nbr_limit>0:
+                if args.nbr_limit<=0:
                     y1 = F1(g, aux_feat)
                 else:
                     if "perpt" not in args.nbr_mode:
@@ -1717,9 +1757,12 @@ if __name__ == '__main__':
     
     parser.add_argument('--bert_out_dim', default=64, type=int, help='initial learning rate')
     parser.add_argument('--G_no_frozen', action="store_true", help='Whether to perform evaluation after training')
-    parser.add_argument('--token_len', default=10, type=int, help='initial learning rate')
+    parser.add_argument('--token_len', default=0, type=int, help='initial learning rate')
     parser.add_argument('--token_max_len', default=60, type=int, help='initial learning rate')
     parser.add_argument('--prompt_id', default=5, type=int, help='initial learning rate')
+
+    parser.add_argument('--proto_momentum', default=0.9, type=float)
+    parser.add_argument("--nbr_mode", type=str, default='perpt_cat', help="Where to save logs, checkpoints and debugging images.")
 
     args = parser.parse_args()
     torch.set_num_threads(8)

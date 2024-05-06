@@ -201,21 +201,24 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
 
         x_ori_src, labels_s, x_ori_src_neighbor, src_neighbor_labels, labels_domain_src, bert_input_src  = next(train_src_iter) 
         x_ori_tgt, labels_t, labels_t_mask, x_ori_tgt_neighbor, tgt_neighbor_labels, labels_domain_tgt, idx_tgt, bert_input_tgt = next(train_tgt_iter)
-        if tgt_neighbor_labels[0] is not None:
-            src_neighbor_labels, tgt_neighbor_labels = torch.stack(src_neighbor_labels).to(device), torch.stack(tgt_neighbor_labels).to(device)
+
 
         x_ori_src, labels_s, labels_domain_src = torch.stack(x_ori_src), torch.stack(labels_s), torch.stack(labels_domain_src)
         x_ori_tgt, idx_tgt, labels_domain_tgt = torch.stack(x_ori_tgt), torch.stack(idx_tgt), torch.stack(labels_domain_tgt)
         x_ori_src, x_ori_tgt = x_ori_src[:,:,2:], x_ori_tgt[:,:,2:] # time, dist, v, a, jerk, bearing, is_real
         x_ori_src, x_ori_tgt, labels_s, idx_tgt = x_ori_src.to(device), x_ori_tgt.to(device), labels_s.to(device), idx_tgt.to(device)
         
-        neighbor_idx_src = [neighbor.shape[0] for neighbor in x_ori_src_neighbor]
-        neighbor_idx_src = np.insert(np.cumsum(neighbor_idx_src),0,0)
-        x_ori_src_neighbor = torch.cat(x_ori_src_neighbor)
-        
-        neighbor_idx_tgt = [neighbor.shape[0] for neighbor in x_ori_tgt_neighbor]
-        neighbor_idx_tgt = np.insert(np.cumsum(neighbor_idx_tgt),0,0)
-        x_ori_tgt_neighbor = torch.cat(x_ori_tgt_neighbor)
+        if args.nbr_limit>0:
+            if tgt_neighbor_labels[0] is not None:
+                src_neighbor_labels, tgt_neighbor_labels = torch.stack(src_neighbor_labels).to(device), torch.stack(tgt_neighbor_labels).to(device)
+
+            neighbor_idx_src = [neighbor.shape[0] for neighbor in x_ori_src_neighbor]
+            neighbor_idx_src = np.insert(np.cumsum(neighbor_idx_src),0,0)
+            x_ori_src_neighbor = torch.cat(x_ori_src_neighbor)
+            
+            neighbor_idx_tgt = [neighbor.shape[0] for neighbor in x_ori_tgt_neighbor]
+            neighbor_idx_tgt = np.insert(np.cumsum(neighbor_idx_tgt),0,0)
+            x_ori_tgt_neighbor = torch.cat(x_ori_tgt_neighbor)
 
         # measure data loading time
         data_time.update(time.time() - end)
@@ -394,130 +397,134 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                     y_2 = F2(g, aux_feat)
                 
             else:
-                
-                if args.nbr_mode=='qkv_cat':
-                    g_s = g_s.unsqueeze(1)
-                    g_t = g_t.unsqueeze(1)
-                    
-                    feat_src_avgpool_neighbor_list=[]
-                    for neighbor_idx,_ in enumerate(neighbor_idx_src):
-                        if neighbor_idx==neighbor_idx_src.shape[0]-1:
-                            break
-                        key = value = feat_src_avgpool_neighbors[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
-                        query = g_s[neighbor_idx] # might change to dist?
-                        attn_output_neighbors_s, attn_output_weights_s = multihead_attn(query, key, value)
-                        feat_src_avgpool_neighbor_list.append(attn_output_neighbors_s)
-                    feat_src_avgpool_neighbors = torch.stack(feat_src_avgpool_neighbor_list).squeeze(1)
-                        
-                    feat_tgt_avgpool_neighbor_list=[]
-                    for neighbor_idx,_ in enumerate(neighbor_idx_tgt):
-                        if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
-                            break
-                        key = value = feat_tgt_avgpool_neighbors[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]].to(device)
-                        query = g_t[neighbor_idx]
-                        attn_output_neighbors_t, attn_output_weights_t = multihead_attn(query, key, value)
-                        feat_tgt_avgpool_neighbor_list.append(attn_output_neighbors_t)
-                    feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list).squeeze(1)
-                    
-                    g_s = g_s.squeeze(1)
-                    g_t = g_t.squeeze(1)
-                    
-                    g_s = torch.cat([g_s,feat_src_avgpool_neighbors],dim=1)
-                    g_t = torch.cat([g_t,feat_tgt_avgpool_neighbors],dim=1)
-                    
-                    g = torch.cat((g_s, g_t), dim=0)
+                if args.nbr_limit<=0:
                     y_1 = F1(g, aux_feat)
-                    y_2 = F2(g, aux_feat)
-                
-                elif args.nbr_mode=='qkv_individual':
-                    g_s = g_s.unsqueeze(1)
-                    g_t = g_t.unsqueeze(1)
-                    
-                    feat_src_avgpool_neighbor_list=[]
-                    for neighbor_idx,_ in enumerate(neighbor_idx_src):
-                        if neighbor_idx==neighbor_idx_src.shape[0]-1:
-                            break
-                        key = value = feat_src_avgpool_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
-                        query = g_s[neighbor_idx] # might change to dist?
-                        attn_output_neighbors_s, attn_output_weights_s = multihead_attn(query, key, value)
-                        feat_src_avgpool_neighbor_list.append(attn_output_neighbors_s)
-                    feat_src_avgpool_neighbors = torch.stack(feat_src_avgpool_neighbor_list).squeeze(1)
-                        
-                    feat_tgt_avgpool_neighbor_list=[]
-                    for neighbor_idx,_ in enumerate(neighbor_idx_tgt):
-                        if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
-                            break
-                        key = value = feat_tgt_avgpool_neighbor[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]].to(device)
-                        query = g_t[neighbor_idx]
-                        attn_output_neighbors_t, attn_output_weights_t = multihead_attn(query, key, value)
-                        feat_tgt_avgpool_neighbor_list.append(attn_output_neighbors_t)
-                    feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list).squeeze(1)
-                    
-                    g_s = g_s.squeeze(1)
-                    g_t = g_t.squeeze(1)
-                    
-                    g_s1 = g_s
-                    g_t1 = g_t
-                    g_s2 = feat_src_avgpool_neighbors
-                    g_t2 = feat_tgt_avgpool_neighbors
-                    
-                    g1 = torch.cat((g_s1, g_t1), dim=0)
-                    g2 = torch.cat((g_s2, g_t2), dim=0)
-                    y_1 = F1(g1, aux_feat)
-                    y_2 = F2(g2, aux_feat)
-                        
-                elif 'perpt' in args.nbr_mode:
-                    feat_src_avgpool_neighbor_list=[]
-                    for neighbor_idx,_ in enumerate(neighbor_idx_src):
-                        if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
-                            break
-                        tmp_neighbor = feat_src_avgpool_neighbors[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
-                        tmp_mask = feat_src_avgpool_neighbors_mask[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
-                        tmp_neighbor = torch.sum(tmp_neighbor, dim=0).to(device)
-                        mask = torch.sum(tmp_mask,dim=0).unsqueeze(1)
-                        tmp_neighbor = tmp_neighbor/(mask+1)
-                        feat_src_avgpool_neighbor_list.append(tmp_neighbor)
-                    feat_src_avgpool_neighbors = torch.stack(feat_src_avgpool_neighbor_list).squeeze(1)
-                    
-                    feat_tgt_avgpool_neighbor_list=[]
-                    for neighbor_idx,_ in enumerate(neighbor_idx_tgt):
-                        if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
-                            break
-                        tmp_neighbor = feat_tgt_avgpool_neighbors[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]]
-                        tmp_mask = feat_tgt_avgpool_neighbors_mask[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]]
-                        tmp_neighbor = torch.sum(tmp_neighbor, dim=0).to(device)
-                        mask = torch.sum(tmp_mask,dim=0).unsqueeze(1)
-                        tmp_neighbor = tmp_neighbor/(mask+1)
-                        feat_tgt_avgpool_neighbor_list.append(tmp_neighbor)
-                    feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list).squeeze(1)
-                    
-                    if 'cat' in args.nbr_mode:
-                        g_s = torch.cat([g_s,feat_src_avgpool_neighbors],dim=-1)
-                        g_t = torch.cat([g_t,feat_tgt_avgpool_neighbors],dim=-1)
-                    else:
-                        g_s = g_s + feat_src_avgpool_neighbors
-                        g_t = g_t + feat_tgt_avgpool_neighbors
-                    
-                    g_s = torch.mean(g_s, dim=1)
-                    g_t = torch.mean(g_t, dim=1)
-                    g = torch.cat((g_s, g_t), dim=0)
-                    y_1 = F1(g, aux_feat)
-                    y_2 = F2(g, aux_feat)
-                
+                    y_1 = F.softmax(y_1, dim=1)
+                    y1_s, y1_t = y_1.chunk(2, dim=0)
                 else:
-                    raise NotImplementedError
-                    if 'cat' in args.cat_mode:
+                    if args.nbr_mode=='qkv_cat':
+                        g_s = g_s.unsqueeze(1)
+                        g_t = g_t.unsqueeze(1)
+                        
+                        feat_src_avgpool_neighbor_list=[]
+                        for neighbor_idx,_ in enumerate(neighbor_idx_src):
+                            if neighbor_idx==neighbor_idx_src.shape[0]-1:
+                                break
+                            key = value = feat_src_avgpool_neighbors[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
+                            query = g_s[neighbor_idx] # might change to dist?
+                            attn_output_neighbors_s, attn_output_weights_s = multihead_attn(query, key, value)
+                            feat_src_avgpool_neighbor_list.append(attn_output_neighbors_s)
+                        feat_src_avgpool_neighbors = torch.stack(feat_src_avgpool_neighbor_list).squeeze(1)
+                            
+                        feat_tgt_avgpool_neighbor_list=[]
+                        for neighbor_idx,_ in enumerate(neighbor_idx_tgt):
+                            if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
+                                break
+                            key = value = feat_tgt_avgpool_neighbors[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]].to(device)
+                            query = g_t[neighbor_idx]
+                            attn_output_neighbors_t, attn_output_weights_t = multihead_attn(query, key, value)
+                            feat_tgt_avgpool_neighbor_list.append(attn_output_neighbors_t)
+                        feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list).squeeze(1)
+                        
+                        g_s = g_s.squeeze(1)
+                        g_t = g_t.squeeze(1)
+                        
                         g_s = torch.cat([g_s,feat_src_avgpool_neighbors],dim=1)
                         g_t = torch.cat([g_t,feat_tgt_avgpool_neighbors],dim=1)
-                    else:
-                        g_s = g_s + feat_src_avgpool_neighbors
-                        g_t = g_t + feat_tgt_avgpool_neighbors
                         
-                    g = torch.cat((g_s, g_t), dim=0)
+                        g = torch.cat((g_s, g_t), dim=0)
+                        y_1 = F1(g, aux_feat)
+                        y_2 = F2(g, aux_feat)
                     
-                    y_1 = F1(g, aux_feat)
-                    y_2 = F2(g, aux_feat)
-                
+                    elif args.nbr_mode=='qkv_individual':
+                        g_s = g_s.unsqueeze(1)
+                        g_t = g_t.unsqueeze(1)
+                        
+                        feat_src_avgpool_neighbor_list=[]
+                        for neighbor_idx,_ in enumerate(neighbor_idx_src):
+                            if neighbor_idx==neighbor_idx_src.shape[0]-1:
+                                break
+                            key = value = feat_src_avgpool_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
+                            query = g_s[neighbor_idx] # might change to dist?
+                            attn_output_neighbors_s, attn_output_weights_s = multihead_attn(query, key, value)
+                            feat_src_avgpool_neighbor_list.append(attn_output_neighbors_s)
+                        feat_src_avgpool_neighbors = torch.stack(feat_src_avgpool_neighbor_list).squeeze(1)
+                            
+                        feat_tgt_avgpool_neighbor_list=[]
+                        for neighbor_idx,_ in enumerate(neighbor_idx_tgt):
+                            if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
+                                break
+                            key = value = feat_tgt_avgpool_neighbor[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]].to(device)
+                            query = g_t[neighbor_idx]
+                            attn_output_neighbors_t, attn_output_weights_t = multihead_attn(query, key, value)
+                            feat_tgt_avgpool_neighbor_list.append(attn_output_neighbors_t)
+                        feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list).squeeze(1)
+                        
+                        g_s = g_s.squeeze(1)
+                        g_t = g_t.squeeze(1)
+                        
+                        g_s1 = g_s
+                        g_t1 = g_t
+                        g_s2 = feat_src_avgpool_neighbors
+                        g_t2 = feat_tgt_avgpool_neighbors
+                        
+                        g1 = torch.cat((g_s1, g_t1), dim=0)
+                        g2 = torch.cat((g_s2, g_t2), dim=0)
+                        y_1 = F1(g1, aux_feat)
+                        y_2 = F2(g2, aux_feat)
+                            
+                    elif 'perpt' in args.nbr_mode:
+                        feat_src_avgpool_neighbor_list=[]
+                        for neighbor_idx,_ in enumerate(neighbor_idx_src):
+                            if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
+                                break
+                            tmp_neighbor = feat_src_avgpool_neighbors[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
+                            tmp_mask = feat_src_avgpool_neighbors_mask[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
+                            tmp_neighbor = torch.sum(tmp_neighbor, dim=0).to(device)
+                            mask = torch.sum(tmp_mask,dim=0).unsqueeze(1)
+                            tmp_neighbor = tmp_neighbor/(mask+1)
+                            feat_src_avgpool_neighbor_list.append(tmp_neighbor)
+                        feat_src_avgpool_neighbors = torch.stack(feat_src_avgpool_neighbor_list).squeeze(1)
+                        
+                        feat_tgt_avgpool_neighbor_list=[]
+                        for neighbor_idx,_ in enumerate(neighbor_idx_tgt):
+                            if neighbor_idx==neighbor_idx_tgt.shape[0]-1:
+                                break
+                            tmp_neighbor = feat_tgt_avgpool_neighbors[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]]
+                            tmp_mask = feat_tgt_avgpool_neighbors_mask[neighbor_idx_tgt[neighbor_idx]:neighbor_idx_tgt[neighbor_idx+1]]
+                            tmp_neighbor = torch.sum(tmp_neighbor, dim=0).to(device)
+                            mask = torch.sum(tmp_mask,dim=0).unsqueeze(1)
+                            tmp_neighbor = tmp_neighbor/(mask+1)
+                            feat_tgt_avgpool_neighbor_list.append(tmp_neighbor)
+                        feat_tgt_avgpool_neighbors = torch.stack(feat_tgt_avgpool_neighbor_list).squeeze(1)
+                        
+                        if 'cat' in args.nbr_mode:
+                            g_s = torch.cat([g_s,feat_src_avgpool_neighbors],dim=-1)
+                            g_t = torch.cat([g_t,feat_tgt_avgpool_neighbors],dim=-1)
+                        else:
+                            g_s = g_s + feat_src_avgpool_neighbors
+                            g_t = g_t + feat_tgt_avgpool_neighbors
+                        
+                        g_s = torch.mean(g_s, dim=1)
+                        g_t = torch.mean(g_t, dim=1)
+                        g = torch.cat((g_s, g_t), dim=0)
+                        y_1 = F1(g, aux_feat)
+                        y_2 = F2(g, aux_feat)
+                    
+                    else:
+                        raise NotImplementedError
+                        if 'cat' in args.cat_mode:
+                            g_s = torch.cat([g_s,feat_src_avgpool_neighbors],dim=1)
+                            g_t = torch.cat([g_t,feat_tgt_avgpool_neighbors],dim=1)
+                        else:
+                            g_s = g_s + feat_src_avgpool_neighbors
+                            g_t = g_t + feat_tgt_avgpool_neighbors
+                            
+                        g = torch.cat((g_s, g_t), dim=0)
+                        
+                        y_1 = F1(g, aux_feat)
+                        y_2 = F2(g, aux_feat)
+                    
                 
         y1_s, y1_t = y_1.chunk(2, dim=0)
         y2_s, y2_t = y_2.chunk(2, dim=0)
@@ -1084,16 +1091,18 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
             # if i>5:
             #     break
             x, labels, neighbors, neighbor_labels, bert_input = data
-            if neighbor_labels[0] is not None:
-                neighbor_labels = torch.stack(neighbor_labels).to(device)
+
             x, labels = torch.stack(x), torch.stack(labels)
             x, labels = x.to(device), labels.to(device)
             bs = x.shape[0]
             x = x[:,:,2:]
             
-            neighbor_idx_src = [neighbor.shape[0] for neighbor in neighbors]
-            neighbor_idx_src = np.insert(np.cumsum(neighbor_idx_src),0,0)
-            neighbors = torch.cat(neighbors)
+            if args.nbr_limit>0:
+                if neighbor_labels[0] is not None:
+                    neighbor_labels = torch.stack(neighbor_labels).to(device)
+                neighbor_idx_src = [neighbor.shape[0] for neighbor in neighbors]
+                neighbor_idx_src = np.insert(np.cumsum(neighbor_idx_src),0,0)
+                neighbors = torch.cat(neighbors)
 
 
             # if "perpt" not in args.nbr_mode:
@@ -1177,82 +1186,84 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
                     y2 = F2(g, aux_feat)
                 
                 else:
-                    
-                    if args.nbr_mode=='qkv_cat':
-                        g = g.unsqueeze(1)
-                        feat_neighbor_list=[]
-                        for neighbor_idx,_ in enumerate(neighbor_idx_src):
-                            if neighbor_idx==neighbor_idx_src.shape[0]-1:
-                                break
-                            key = value = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
-                            query = g[neighbor_idx]
-                            attn_output_neighbors, attn_output_weights = multihead_attn(query, key, value)
-                            feat_neighbor_list.append(attn_output_neighbors)
-                        feat_neighbors = torch.stack(feat_neighbor_list).squeeze(1)
-                        g = g.squeeze(1)
-                        g = torch.cat([g,feat_neighbors],dim=1)
-                        
+                    if args.nbr_limit<=0:
                         y1 = F1(g, aux_feat)
-                        y2 = F2(g, aux_feat)
-                    
-                    elif args.nbr_mode=='qkv_individual':
-                        g = g.unsqueeze(1)
-                        feat_neighbor_list=[]
-                        for neighbor_idx,_ in enumerate(neighbor_idx_src):
-                            if neighbor_idx==neighbor_idx_src.shape[0]-1:
-                                break
-                            key = value = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
-                            query = g[neighbor_idx]
-                            attn_output_neighbors, attn_output_weights = multihead_attn(query, key, value)
-                            feat_neighbor_list.append(attn_output_neighbors)
-                        feat_neighbors = torch.stack(feat_neighbor_list).squeeze(1)
-                        g = g.squeeze(1)
-
-                        g1 = g
-                        g2 = feat_neighbors
-
-                        y1 = F1(g1, aux_feat)
-                        y2 = F2(g2, aux_feat)
-                        
-                    elif 'perpt' in args.nbr_mode:
-                        feat_neighbor_list=[]
-                        for neighbor_idx,_ in enumerate(neighbor_idx_src):
-                            if neighbor_idx==neighbor_idx_src.shape[0]-1:
-                                break
-                            tmp_neighbor = feat_neighbors[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
-                            tmp_mask = feat_neighbors_mask[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
-                            
-                            tmp_neighbor = torch.sum(tmp_neighbor, dim=0).to(device)
-                            mask = torch.sum(tmp_mask,dim=0).unsqueeze(1)
-                            tmp_neighbor = tmp_neighbor/(mask+1)
-                            feat_neighbor_list.append(tmp_neighbor)
-                        feat_neighbors = torch.stack(feat_neighbor_list).squeeze(1)
-                        
-                        if 'cat' in args.nbr_mode:
-                            g = torch.cat([g,feat_neighbors],dim=-1)
-                        else:
-                            g = g + feat_neighbors
-                        g = torch.mean(g, dim=1)
-                        y1 = F1(g, aux_feat)
-                        y2 = F2(g, aux_feat)
-                    
                     else:
-                        feat_neighbor_list=[]
-                        for neighbor_idx,_ in enumerate(neighbor_idx_src):
-                            if neighbor_idx==neighbor_idx_src.shape[0]-1:
-                                break
-                            tmp_neighbor = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
-                            tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
-                            feat_neighbor_list.append(tmp_neighbor)
-                        feat_neighbors = torch.stack(feat_neighbor_list) 
-                        
-                        if 'cat' in args.cat_mode:
+                        if args.nbr_mode=='qkv_cat':
+                            g = g.unsqueeze(1)
+                            feat_neighbor_list=[]
+                            for neighbor_idx,_ in enumerate(neighbor_idx_src):
+                                if neighbor_idx==neighbor_idx_src.shape[0]-1:
+                                    break
+                                key = value = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
+                                query = g[neighbor_idx]
+                                attn_output_neighbors, attn_output_weights = multihead_attn(query, key, value)
+                                feat_neighbor_list.append(attn_output_neighbors)
+                            feat_neighbors = torch.stack(feat_neighbor_list).squeeze(1)
+                            g = g.squeeze(1)
                             g = torch.cat([g,feat_neighbors],dim=1)
-                        else:
-                            g = g + feat_neighbors
                             
-                        y1 = F1(g, aux_feat)
-                        y2 = F2(g, aux_feat)
+                            y1 = F1(g, aux_feat)
+                            y2 = F2(g, aux_feat)
+                        
+                        elif args.nbr_mode=='qkv_individual':
+                            g = g.unsqueeze(1)
+                            feat_neighbor_list=[]
+                            for neighbor_idx,_ in enumerate(neighbor_idx_src):
+                                if neighbor_idx==neighbor_idx_src.shape[0]-1:
+                                    break
+                                key = value = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]].to(device)
+                                query = g[neighbor_idx]
+                                attn_output_neighbors, attn_output_weights = multihead_attn(query, key, value)
+                                feat_neighbor_list.append(attn_output_neighbors)
+                            feat_neighbors = torch.stack(feat_neighbor_list).squeeze(1)
+                            g = g.squeeze(1)
+
+                            g1 = g
+                            g2 = feat_neighbors
+
+                            y1 = F1(g1, aux_feat)
+                            y2 = F2(g2, aux_feat)
+                            
+                        elif 'perpt' in args.nbr_mode:
+                            feat_neighbor_list=[]
+                            for neighbor_idx,_ in enumerate(neighbor_idx_src):
+                                if neighbor_idx==neighbor_idx_src.shape[0]-1:
+                                    break
+                                tmp_neighbor = feat_neighbors[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
+                                tmp_mask = feat_neighbors_mask[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
+                                
+                                tmp_neighbor = torch.sum(tmp_neighbor, dim=0).to(device)
+                                mask = torch.sum(tmp_mask,dim=0).unsqueeze(1)
+                                tmp_neighbor = tmp_neighbor/(mask+1)
+                                feat_neighbor_list.append(tmp_neighbor)
+                            feat_neighbors = torch.stack(feat_neighbor_list).squeeze(1)
+                            
+                            if 'cat' in args.nbr_mode:
+                                g = torch.cat([g,feat_neighbors],dim=-1)
+                            else:
+                                g = g + feat_neighbors
+                            g = torch.mean(g, dim=1)
+                            y1 = F1(g, aux_feat)
+                            y2 = F2(g, aux_feat)
+                        
+                        else:
+                            feat_neighbor_list=[]
+                            for neighbor_idx,_ in enumerate(neighbor_idx_src):
+                                if neighbor_idx==neighbor_idx_src.shape[0]-1:
+                                    break
+                                tmp_neighbor = feat_neighbor[neighbor_idx_src[neighbor_idx]:neighbor_idx_src[neighbor_idx+1]]
+                                tmp_neighbor = torch.mean(tmp_neighbor, dim=0).to(device)
+                                feat_neighbor_list.append(tmp_neighbor)
+                            feat_neighbors = torch.stack(feat_neighbor_list) 
+                            
+                            if 'cat' in args.cat_mode:
+                                g = torch.cat([g,feat_neighbors],dim=1)
+                            else:
+                                g = g + feat_neighbors
+                                
+                            y1 = F1(g, aux_feat)
+                            y2 = F2(g, aux_feat)
 
 
             # measure accuracy and record loss
