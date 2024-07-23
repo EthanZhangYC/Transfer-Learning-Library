@@ -76,7 +76,7 @@ def main(args: argparse.Namespace):
 
     # train_source_iter = ForeverDataIterator(train_source_loader)
     # train_target_iter = ForeverDataIterator(train_target_loader)
-    train_source_iter, train_target_iter, val_loader = utils.load_data(args)
+    train_source_iter, train_target_iter, val_loader,_ = utils.load_data(args)
     G = models.TSEncoder().to(device)
     classifier_features_dim=64
     num_classes = 4
@@ -216,8 +216,10 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
         aux_feat_tgt = torch.stack([x_t[:,:,0],x_t[:,:,-1]], axis=2)
         aux_feat = torch.cat((aux_feat_src, aux_feat_tgt), dim=0)
 
-        _,_,g,_ = G(x)
-        # _,_,_,g = G(x)
+        _,g,_,_ = G(x)
+        # _,_,g,_ = G(x)
+        # g = torch.sum(g,dim=1)/torch.sum(x[:,:,0]!=0,dim=1).unsqueeze(1)
+        
         y_1 = F1(g, aux_feat)
         y_2 = F2(g, aux_feat)
         y1_s, y1_t = y_1.chunk(2, dim=0)
@@ -232,12 +234,16 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
         optimizer_g.step()
         optimizer_f.step()
 
+
+
         # Step B train classifier to maximize discrepancy
         optimizer_g.zero_grad()
         optimizer_f.zero_grad()
 
-        _,_,g,_ = G(x)
-        # _,_,_,g = G(x)
+        _,g,_,_ = G(x)
+        # _,_,g,_ = G(x)
+        # g = torch.sum(g,dim=1)/torch.sum(x[:,:,0]!=0,dim=1).unsqueeze(1)
+        
         y_1 = F1(g, aux_feat)
         y_2 = F2(g, aux_feat)
         y1_s, y1_t = y_1.chunk(2, dim=0)
@@ -249,11 +255,15 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
         loss.backward()
         optimizer_f.step()
 
+
+
         # Step C train genrator to minimize discrepancy
         for k in range(args.num_k):
             optimizer_g.zero_grad()
-            _,_,g,_ = G(x)
-            # _,_,_,g = G(x)
+            _,g,_,_ = G(x)
+            # _,_,g,_ = G(x)
+            # g = torch.sum(g,dim=1)/torch.sum(x[:,:,0]!=0,dim=1).unsqueeze(1)
+        
             y_1 = F1(g, aux_feat)
             y_2 = F2(g, aux_feat)
             y1_s, y1_t = y_1.chunk(2, dim=0)
@@ -314,8 +324,10 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead,
             target = target.to(device)
 
             # compute output
-            _,_,g,_ = G(images)
-            # _,_,_,g = G(images)
+            _,g,_,_ = G(images)
+            # _,_,g,_ = G(images)
+            # g = torch.sum(g,dim=1)/torch.sum(images[:,:,0]!=0,dim=1).unsqueeze(1)
+        
             aux_feat = torch.stack([images[:,:,0],images[:,:,-1]], axis=2)
             y1, y2 = F1(g, aux_feat), F2(g, aux_feat)
 

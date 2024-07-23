@@ -116,6 +116,8 @@ class ForeverDataIterator:
 def load_data(args):
     # filename = '/home/yichen/ts2vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
     filename = '/home/yichen/TS2Vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedNAN_5s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_doubletest_0218.pickle'
+    # filename='/home/yichen/TS2Vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedNAN_1s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_240521_sharedminmax_balanced_maxinter650.pickle'
+    # filename='/home/yichen/TS2Vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedLinear_1s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_240521_sharedminmax_balanced_maxinter650.pickle'
 
     with open(filename, 'rb') as f:
         kfold_dataset, X_unlabeled = pickle.load(f)
@@ -127,8 +129,16 @@ def load_data(args):
         train_x = dataset[2].squeeze(1)
     else:
         train_x = dataset[0].squeeze(1)
-        
     train_y = dataset[3]
+    
+    # if args.interpolatedlinear:
+    #     train_x = dataset[1].squeeze(1)
+    # # elif args.interpolated:
+    # #     train_x = dataset[2].squeeze(1)
+    # else:
+    #     train_x = dataset[0].squeeze(1)
+    # train_y = dataset[2]
+    
     train_x = train_x[:,:,4:]   
     pad_mask_source = train_x[:,:,0]==0
     train_x[pad_mask_source] = 0.
@@ -146,6 +156,7 @@ def load_data(args):
     # # filename_mtl = '/home/yichen/ts2vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedLinear_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_10dim_1115.pickle'%args.trip_time
     # filename_mtl = '/home/yichen/TS2Vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedNAN_5s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_doubletest_0226_sharedminmax_balanced.pickle'
     filename_mtl = '/home/yichen/TS2Vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedLinear_5s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_0817_sharedminmax_balanced.pickle'
+    # filename_mtl ='/home/yichen/TS2Vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedLinear_1s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_240521_sharedminmax_balanced_maxinter650.pickle'
     print(filename_mtl)
     with open(filename_mtl, 'rb') as f:
         kfold_dataset, X_unlabeled_mtl = pickle.load(f)
@@ -155,7 +166,7 @@ def load_data(args):
         train_x_mtl = dataset_mtl[1].squeeze(1)
         test_x = dataset_mtl[4].squeeze(1)
     elif args.interpolated:
-        raise NotImplementedError
+        raise NotImplementedError 
         train_x_mtl = dataset_mtl[2].squeeze(1)
         test_x = dataset_mtl[5].squeeze(1)
     else:
@@ -209,9 +220,10 @@ def load_data(args):
     sampler = ImbalancedDatasetSampler(train_dataset_geolife, callback_get_label=get_label, num_samples=len(train_dataset_mtl))
     train_loader_source = DataLoader(train_dataset_geolife, batch_size=min(args.batch_size, len(train_dataset_geolife)), sampler=sampler, num_workers=8, shuffle=False, drop_last=True)
     # train_loader_target = DataLoader(train_dataset_mtl, batch_size=min(args.batch_size, len(train_dataset_mtl)), shuffle=True, drop_last=True)
-    train_loader_target = DataLoader(train_dataset_mtl, batch_size=min(args.batch_size, len(train_dataset_mtl)), num_workers=8, shuffle=True, drop_last=False)
+    train_loader_target = DataLoader(train_dataset_mtl, batch_size=min(args.batch_size, len(train_dataset_mtl)), num_workers=8, shuffle=True, drop_last=True)
     train_source_iter = ForeverDataIterator(train_loader_source)
     train_tgt_iter = ForeverDataIterator(train_loader_target)
+    train_loader_target = DataLoader(train_dataset_mtl, batch_size=min(args.batch_size, len(train_dataset_mtl)), num_workers=8, shuffle=False, drop_last=False)
     train_loader = (train_source_iter, train_tgt_iter)
     
     test_dataset = TensorDataset(
@@ -693,6 +705,59 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
     def __init__(self, imgs, labels, neighbors_idx, total_trips, pos_trips, part='train', transform=None, dataset='', label_mask=None, nbr_limit=10, neighbor_labels=None, args=None, enc_tokenizer=None):
         super(create_single_dataset_idx_v3, self).__init__()
         
+        # if dataset=='tgt-lbd':
+        #     class_dict={}
+        #     for idx,y in enumerate(labels):
+        #         if y not in class_dict:
+        #             class_dict[y]=[imgs[idx]]
+        #         else:
+        #             class_dict[y].append(imgs[idx])
+            
+        #     select_list_x=[]
+        #     select_list_y=[]
+        #     for k in class_dict:
+        #         tmp_select = random.sample(class_dict[k],1)
+        #         select_list_x.append(tmp_select)
+        #         select_list_y.append([k]*1)
+        #     with open('/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/semi_select/1shot.npy','wb') as f:
+        #         pickle.dump([select_list_x,select_list_y], f)
+            
+        #     select_list_x=[]
+        #     select_list_y=[]
+        #     for k in class_dict:
+        #         tmp_select = random.sample(class_dict[k],3)
+        #         select_list_x.append(tmp_select)
+        #         select_list_y.append([k]*3)
+        #     with open('/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/semi_select/3shot.npy','wb') as f:
+        #         pickle.dump([select_list_x,select_list_y], f)
+            
+        #     select_list_x=[]
+        #     select_list_y=[]
+        #     for k in class_dict:
+        #         tmp_select = random.sample(class_dict[k],5)
+        #         select_list_x.append(tmp_select)
+        #         select_list_y.append([k]*5)
+        #     with open('/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/semi_select/5shot.npy','wb') as f:
+        #         pickle.dump([select_list_x,select_list_y], f)
+            
+        #     select_list_x=[]
+        #     select_list_y=[]
+        #     for k in class_dict:
+        #         tmp_select = random.sample(class_dict[k],10)
+        #         select_list_x.append(tmp_select)
+        #         select_list_y.append([k]*10)
+        #     with open('/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/semi_select/10shot.npy','wb') as f:
+        #         pickle.dump([select_list_x,select_list_y], f)
+        #     exit()
+          
+        # args.n_shots = 10
+        if dataset=='tgt-lbd':   
+            print('/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/semi_select/%dshot.npy'%(args.n_shots))
+            with open('/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/semi_select/%dshot.npy'%(args.n_shots),'rb') as f:
+                imgs, labels = pickle.load(f)
+            imgs = np.vstack(imgs)
+            labels = np.concatenate(labels)
+        
         self.imgs = imgs.astype(np.float32)
         self.labels = labels
         self.neighbors_idx = neighbors_idx
@@ -870,7 +935,7 @@ class create_single_dataset_idx_v3(torch.utils.data.Dataset):
             return img, label, neighbors, nbrs_labels, bert_input
             # else:
             #     return img, label, neighbors
-        elif self.dataset=='src':
+        elif self.dataset=='src' or self.dataset=='tgt-lbd':
             label = torch.as_tensor(self.labels[index])
             # if self.neighbor_labels[index] is None:
             #     neighbors_label = label#.unsqueeze(0)
@@ -1093,6 +1158,7 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shu
         _,_,_,_,_,pos_trips,total_trips = pickle.load(f)
     
     filename = '/home/yichen/TS2Vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedNAN_5s_trip%d_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_doubletest_0218.pickle'%args.trip_time
+    # filename='/home/yichen/TS2Vec/datafiles/Geolife/traindata_4class_xy_traintest_interpolatedNAN_1s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_240521_sharedminmax_balanced_maxinter1500.pickle'
     with open(filename, 'rb') as f:
         kfold_dataset, X_unlabeled = pickle.load(f)
     dataset = kfold_dataset
@@ -1140,6 +1206,7 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shu
 
     # filename_mtl = '/home/yichen/TS2Vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedNAN_5s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_doubletest_0226_sharedminmax_balanced.pickle'
     filename_mtl = '/home/yichen/TS2Vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedLinear_5s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_0817_sharedminmax_balanced.pickle'
+    # filename_mtl ='/home/yichen/TS2Vec/datafiles/MTL/traindata_4class_xy_traintest_interpolatedLinear_1s_trip20_new_001meters_withdist_aligninterpolation_InsertAfterSeg_Both_11dim_240521_sharedminmax_balanced_maxinter1500.pickle'
     print(filename_mtl)
     with open(filename_mtl, 'rb') as f:
         kfold_dataset, X_unlabeled_mtl = pickle.load(f)
@@ -1200,6 +1267,8 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shu
         train_dataset_tgt = create_single_dataset_idx_v4(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args, enc_tokenizer=enc_tokenizer)
     else:
         raise NotImplementedError
+    if args.semi:
+        train_dataset_tgt_lbd = create_single_dataset_idx_v3(train_x_mtl, train_y_mtl, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt-lbd', nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args, enc_tokenizer=enc_tokenizer)
     # train_dataset_tgt = create_single_dataset_idx_v3(train_x_mtl, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit)
     
     
@@ -1240,7 +1309,13 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shu
     train_tgt_iter = ForeverDataIterator(train_loader_target)
     test_loader = DataLoader(test_dataset, batch_size=min(args.batch_size, len(test_dataset)), collate_fn=collate_fn, num_workers=0, shuffle=False)
     
-    return train_source_iter, train_tgt_iter, test_loader, train_loader_source, train_loader_target
+    if args.semi:
+        train_loader_target_lbd = DataLoader(train_dataset_tgt_lbd, batch_size=min(args.batch_size, len(train_dataset_tgt_lbd)), shuffle=shuffle, drop_last=False, collate_fn=collate_fn, num_workers=0)
+        train_tgt_iter_lbd = ForeverDataIterator(train_loader_target_lbd)
+    else:
+        train_tgt_iter_lbd=None
+
+    return train_source_iter, train_tgt_iter, test_loader, train_loader_source, train_loader_target, train_loader_source, train_tgt_iter_lbd
 
 
 
@@ -1278,7 +1353,7 @@ def validate(val_loader, model, args, device) -> float:
             target = target.to(device)
 
             # compute output
-            output,_,_,_,_ = model(images)
+            output,_,_,_ = model(images)
             loss = F.cross_entropy(output, target)
 
             # measure accuracy and record loss

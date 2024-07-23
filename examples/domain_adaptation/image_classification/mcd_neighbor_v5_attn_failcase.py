@@ -87,7 +87,7 @@ def main(args: argparse.Namespace):
 
     pseudo_labels=pseudo_labels_mask=None
 
-    filename='v1'
+    filename='0529_v1'
     ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/0312_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_qkvcat_0124newnbr20m_limit100_nbrgrad/checkpoints/best.pth'
     ckpt = torch.load(ckpt_dir, map_location='cuda:0')
     G.load_state_dict(ckpt['G'])#, strict=False)
@@ -96,11 +96,11 @@ def main(args: argparse.Namespace):
     args.nbr_mode="qkv_cat"
     args.nbr_limit=100
     print(filename, args.nbr_mode)
-    train_source_iter, train_target_iter, val_loader,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
+    train_source_iter, train_target_iter, val_loader,_,_,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
     results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn, nbr_label_encoder, filename=filename)
     print('---------------------')
     
-    filename='v2'
+    filename='0529_v2'
     ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/0312_mcd_v5_freeze_01_entpropor0666_srcce1_ent01_tgtce01_perptcat_0124newnbr20m_limit10_nbrgrad/checkpoints/best.pth'
     ckpt = torch.load(ckpt_dir, map_location='cuda:0')
     G.load_state_dict(ckpt['G'])#, strict=False)
@@ -108,7 +108,7 @@ def main(args: argparse.Namespace):
     args.nbr_mode="perpt_cat"
     args.nbr_limit=10
     print(filename, args.nbr_mode)
-    train_source_iter, train_target_iter, val_loader,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
+    train_source_iter, train_target_iter, val_loader,_,_,_,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask)
     results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn, nbr_label_encoder, filename=filename)
     print('---------------------')
     
@@ -175,6 +175,7 @@ def softmax_mse_loss(input_logits, target_logits, masks=None):
 def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterator,
           G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net: nn.Module,
           optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder):
+    raise NotImplemented
     batch_time = AverageMeter('Time', ':3.1f')
     data_time = AverageMeter('Data', ':3.1f')
     losses = AverageMeter('Loss', ':3.2f')
@@ -667,14 +668,14 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
     for k,v in label_dict.items():
         idx_dict[v]=k
 
-    wrong_list = {0: [], 1: [], 2: [], 3: []}
+    wrong_list = {0: [[],[],[],[]], 1:  [[],[],[],[]], 2:  [[],[],[],[]], 3:  [[],[],[],[]]}
     with torch.no_grad():
         end = time.time()
         for i, data in enumerate(val_loader):
             # if i>5:
             #     break
             
-            x, labels, neighbors, neighbor_labels = data
+            x, labels, neighbors, neighbor_labels,_ = data
             if neighbor_labels[0] is not None:
                 neighbor_labels = torch.stack(neighbor_labels).to(device)
             x, labels = torch.stack(x), torch.stack(labels)
@@ -824,11 +825,12 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
             top1_1.update(acc1.item(), bs)
             
             hard_y = torch.argmax(y1,dim=1)
-            # diff_ids = torch.nonzero(hard_y != labels).cpu()
-            diff_ids = torch.nonzero(hard_y == labels).cpu()
+            diff_ids = torch.nonzero(hard_y != labels).cpu()
+            # diff_ids = torch.nonzero(hard_y == labels).cpu()
             for diff_id in diff_ids:
                 tmp_label = labels[diff_id].item()
-                wrong_list[tmp_label].append((diff_id+i*args.batch_size).item())
+                tmp_pred = hard_y[diff_id].item()
+                wrong_list[tmp_label][tmp_pred].append((diff_id+i*args.batch_size).item())
             
             _, preds1 = torch.max(y1, 1)
             for t, p in zip(labels.view(-1), preds1.view(-1)):
@@ -841,8 +843,8 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
             if i % args.print_freq == 0:
                 progress.display(i)
                 
-        # np.save("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase/%s"%filename, np.array(wrong_list))
-        np.save("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase_correct/%s"%filename, np.array(wrong_list))
+        np.save("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase0530/%s"%filename, np.array(wrong_list))
+        # np.save("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/failcase_correct/%s"%filename, np.array(wrong_list))
         
         if top1_1.avg > top1_2.avg:
             confusion_matrix = confusion_matrix1
@@ -962,7 +964,19 @@ if __name__ == '__main__':
     parser.add_argument('--nbr_label_embed_dim', default=16, type=int, help='initial learning rate')
     parser.add_argument('--pseudo_every_epoch', action="store_true", help='Whether to perform evaluation after training')
 
+    
+    parser.add_argument('--random_mask_nbr_ratio', default=1.0, type=float)
+    parser.add_argument('--mask_early', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument('--mask_late', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument('--n_mask_late', default=5, type=int, help='initial learning rate')
 
+    parser.add_argument('--bert_out_dim', default=64, type=int, help='initial learning rate')
+    parser.add_argument('--G_no_frozen', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument('--token_len', default=10, type=int, help='initial learning rate')
+    parser.add_argument('--token_max_len', default=60, type=int, help='initial learning rate')
+    parser.add_argument("--steps_list", type=str, default='ABC', help="Where to save logs, checkpoints and debugging images.")
+    parser.add_argument('--prompt_id', default=5, type=int, help='initial learning rate')
+    parser.add_argument('--semi', action="store_true", help='Whether to perform evaluation after training')
 
 
     args = parser.parse_args()

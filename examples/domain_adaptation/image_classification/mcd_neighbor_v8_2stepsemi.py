@@ -149,7 +149,7 @@ def main(args: argparse.Namespace):
     _,_,_,train_loader_target = utils.load_data(args)
     # validate_test(val_loader, G_ori, F1_ori, args) 
     pseudo_labels,pseudo_labels_mask = eval('get_pseudo_labels_by_'+args.pseudo_mode)(train_loader_target, G_ori, F1_ori, args)
-    train_source_iter, train_target_iter, val_loader,_,_,source_loader = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask, enc_tokenizer=enc_tokenizer)
+    train_source_iter, train_target_iter, val_loader,_,_,source_loader, train_target_iter_lbd = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask, enc_tokenizer=enc_tokenizer)
     del G_ori, F1_ori
     
     optimizer_g = Adam([
@@ -214,10 +214,10 @@ def main(args: argparse.Namespace):
         # train for one epoch
         if args.self_train:
             self_train(train_source_iter, train_target_iter, G, F1, F2, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t, multihead_attn, \
-                nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader)
+                nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader, train_target_iter_lbd)
         else:
             proto_s = train(train_source_iter, train_target_iter, G, F1, F2, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t, multihead_attn, \
-                nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader)
+                nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader, train_target_iter_lbd)
 
         # evaluate on validation set
         results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn, \
@@ -321,7 +321,7 @@ def softmax_mse_loss(input_logits, target_logits, masks=None):
 
 def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterator,
           G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net: nn.Module,
-          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader):
+          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader, train_tgt_iter_lbd):
     batch_time = AverageMeter('Time', ':3.1f')
     data_time = AverageMeter('Data', ':3.1f')
     losses = AverageMeter('Loss', ':3.2f')
@@ -359,11 +359,15 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
         # if args.nbr_label_mode == 'separate_input':
         x_ori_src, labels_s, x_ori_src_neighbor, src_neighbor_labels, labels_domain_src, bert_input_src  = next(train_src_iter) 
         x_ori_tgt, labels_t, labels_t_mask, x_ori_tgt_neighbor, tgt_neighbor_labels, labels_domain_tgt, idx_tgt, bert_input_tgt = next(train_tgt_iter)
-
         x_ori_src, labels_s, labels_domain_src = torch.stack(x_ori_src), torch.stack(labels_s), torch.stack(labels_domain_src)
         x_ori_tgt, labels_t, labels_t_mask, idx_tgt, labels_domain_tgt = torch.stack(x_ori_tgt), torch.stack(labels_t), torch.stack(labels_t_mask), torch.stack(idx_tgt), torch.stack(labels_domain_tgt)
         x_ori_src, x_ori_tgt = x_ori_src[:,:,2:], x_ori_tgt[:,:,2:] # time, dist, v, a, jerk, bearing, is_real
         x_ori_src, x_ori_tgt, labels_s, labels_t, labels_t_mask, idx_tgt = x_ori_src.to(device), x_ori_tgt.to(device), labels_s.to(device), labels_t.to(device), labels_t_mask.to(device), idx_tgt.to(device)
+        
+        x_ori_tgt_lbd, labels_t_lbd, x_ori_tgt_neighbor_lbd, tgt_neighbor_labels_lbd, labels_domain_tgt_lbd, bert_input_tgt_lbd = next(train_tgt_iter_lbd)
+        x_ori_tgt_lbd, labels_t_lbd = torch.stack(x_ori_tgt_lbd), torch.stack(labels_t_lbd)
+        x_ori_tgt_lbd = x_ori_tgt_lbd[:,:,2:] # time, dist, v, a, jerk, bearing, is_real
+        x_ori_tgt_lbd, labels_t_lbd = x_ori_tgt_lbd.to(device), labels_t_lbd.to(device)
         
         if args.nbr_limit>0:
             if tgt_neighbor_labels[0] is not None:
@@ -385,14 +389,14 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
         optimizer_f.zero_grad()
 
         bs=x_ori_src.shape[0]
-        x = torch.cat((x_ori_src, x_ori_tgt), dim=0)
+        x = torch.cat((x_ori_src, x_ori_tgt, x_ori_tgt_lbd), dim=0)
         if 'perpt' in args.nbr_mode:
             _,_,g,_,_,_,_ = G(x, args, mask_early=args.mask_early, mask_late=args.mask_late)
         else:
             _,g,_,_,_,_,_ = G(x, args, mask_early=args.mask_early, mask_late=args.mask_late)
         if args.mask_late:
             g,g_list = g
-        g_s,g_t = g[:bs],g[bs:]
+        g_s,g_t,g_t_lbd = g[:bs],g[bs:2*bs],g[2*bs:]
         
         # with torch.no_grad():
         #     n_iter = x_ori_src_neighbor.shape[0]//bs
@@ -466,9 +470,10 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
             
         else:
             if args.nbr_limit<=0:
-                y_1 = F1(g, aux_feat)
-                y_1 = F.softmax(y_1, dim=1)
-                y1_s, y1_t = y_1.chunk(2, dim=0)
+                y1 = F1(g, aux_feat)
+                y1 = F.softmax(y1, dim=1)
+                # y1_s, y1_t = y_1.chunk(2, dim=0)
+                y1_s,y1_t,y1_t_lbd = y1[:bs],y1[bs:2*bs],y1[2*bs:]
             else:
                 if "perpt" not in args.nbr_mode:
                     if args.nbr_grad:
@@ -906,7 +911,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
             loss = loss_srcce + loss_ent  + loss_tgtce + loss_consistency
         
         elif args.loss_mode=='v3':
-            loss_srcce = F.cross_entropy(y1_s, labels_s)
+            loss_srcce = F.cross_entropy(y1_s, labels_s) + F.cross_entropy(y1_t_lbd, labels_t_lbd)
             loss_ent = entropy(y1_t) * args.trade_off_entropy
             loss_tgtce = torch.mean(F.cross_entropy(y1_t, labels_t, reduce=False) * reliable_weight) * args.trade_off_pseudo
             loss_consistency=torch.tensor(0.).to(device)
@@ -1288,7 +1293,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
 
 def self_train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterator,
           G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net: nn.Module,
-          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader):
+          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader, train_tgt_iter_lbd):
     batch_time = AverageMeter('Time', ':3.1f')
     data_time = AverageMeter('Data', ':3.1f')
     losses = AverageMeter('Loss', ':3.2f')
@@ -1331,6 +1336,11 @@ def self_train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataI
         x_ori_tgt, labels_t, labels_t_mask, idx_tgt, labels_domain_tgt = torch.stack(x_ori_tgt), torch.stack(labels_t), torch.stack(labels_t_mask), torch.stack(idx_tgt), torch.stack(labels_domain_tgt)
         x_ori_src, x_ori_tgt = x_ori_src[:,:,2:], x_ori_tgt[:,:,2:] # time, dist, v, a, jerk, bearing, is_real
         x_ori_src, x_ori_tgt, labels_s, labels_t, labels_t_mask, idx_tgt = x_ori_src.to(device), x_ori_tgt.to(device), labels_s.to(device), labels_t.to(device), labels_t_mask.to(device), idx_tgt.to(device)
+        
+        x_ori_tgt_lbd, labels_t_lbd, x_ori_tgt_neighbor_lbd, tgt_neighbor_labels_lbd, labels_domain_tgt_lbd, bert_input_tgt_lbd = next(train_tgt_iter_lbd)
+        x_ori_tgt_lbd, labels_t_lbd = torch.stack(x_ori_tgt_lbd), torch.stack(labels_t_lbd)
+        x_ori_tgt_lbd = x_ori_tgt_lbd[:,:,2:] # time, dist, v, a, jerk, bearing, is_real
+        x_ori_tgt_lbd, labels_t_lbd = x_ori_tgt_lbd.to(device), labels_t_lbd.to(device)
 
 
         # measure data loading time
@@ -1341,27 +1351,26 @@ def self_train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataI
         optimizer_f.zero_grad()
 
         bs=x_ori_src.shape[0]
-        x = torch.cat((x_ori_src, x_ori_tgt), dim=0)
+        x = torch.cat((x_ori_src, x_ori_tgt, x_ori_tgt_lbd), dim=0)
         if 'perpt' in args.nbr_mode:
             _,_,g,_,_,_,_ = G(x, args, mask_early=args.mask_early, mask_late=args.mask_late)
         else:
             _,g,_,_,_,_,_ = G(x, args, mask_early=args.mask_early, mask_late=args.mask_late)
         if args.mask_late:
             g,g_list = g
-        g_s,g_t = g[:bs],g[bs:]
+        g_s,g_t,g_t_lbd = g[:bs],g[bs:2*bs],g[2*bs:]
 
         aux_feat=None
-        y_1 = F1(g, aux_feat)
-        y_1 = F.softmax(y_1, dim=1)
-        y1_s, y1_t = y_1.chunk(2, dim=0)
+        y1 = F1(g, aux_feat)
+        y1 = F.softmax(y1, dim=1)
+        # y1_s, y1_t = y_1.chunk(2, dim=0)
+        y1_s,y1_t,y1_t_lbd = y1[:bs],y1[bs:2*bs],y1[2*bs:]
 
 
-        loss_srcce = F.cross_entropy(y1_s, labels_s)
+        loss_srcce = F.cross_entropy(y1_s, labels_s) + F.cross_entropy(y1_t_lbd, labels_t_lbd)
         loss_ent = entropy(y1_t) * args.trade_off_entropy
         loss_tgtce = torch.sum(F.cross_entropy(y1_t, labels_t, reduce=False) * labels_t_mask) / torch.sum(labels_t_mask) * args.trade_off_pseudo
         loss_consistency=torch.tensor(0.).to(device)
-
-            
         loss = loss_srcce + loss_ent  + loss_tgtce + loss_consistency
         
 
@@ -2322,6 +2331,7 @@ if __name__ == '__main__':
     parser.add_argument('--proto_momentum', default=0.9, type=float)
     parser.add_argument("--update_strategy", type=str, default='iter', help="Where to save logs, checkpoints and debugging images.")
     parser.add_argument('--self_train', action="store_true", help='Whether to perform evaluation after training')
+    parser.add_argument('--semi', action="store_true", help='Whether to perform evaluation after training')
 
     args = parser.parse_args()
     torch.set_num_threads(8)

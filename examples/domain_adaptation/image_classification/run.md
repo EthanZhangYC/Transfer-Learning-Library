@@ -100,7 +100,7 @@ python dann.py \
 
 CUDA_VISIBLE_DEVICES=8 \
 python jan.py \
---epochs 30 \
+--epochs 50 \
 --batch-size 64 \
 -i 294 \
 --seed 42 \
@@ -108,8 +108,9 @@ python jan.py \
 --wd 1e-4 \
 --trade-off 0.1 \
 --interpolatedlinear \
---log logs/jan
 --adversarial \
+--log logs/0508_jan_adv
+
 
 
 CUDA_VISIBLE_DEVICES=8 \
@@ -927,7 +928,24 @@ python mcd_neighbor_v7_bertwithmcd.py \
 
 
 
-
+CUDA_VISIBLE_DEVICES=6 \
+python mcd_neighbor_v7_clipwithmcd.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--nbr_mode bert_cat \
+--steps_list ABC \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--token_max_len 60 \
+--prompt_id 7 \
+--log logs/0709_mcd_v7_freeze_01_clipcat_ABC_p7_maxlen60_2fc_correctbertinput
 
 
 
@@ -1017,6 +1035,105 @@ python mcd_neighbor_v6_bert.py \
 --trade-off 1 \
 --trade-off-entropy 0.1 \
 --trade-off-pseudo 0.1 \
+--nbr_mode bert_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--token_max_len 60 \
+--bert_out_dim 64 \
+--prompt_id 7 \
+--proto_momentum 0.9 \
+--update_strategy iter \
+--log logs/0506_mcd_v6_freeze_01_entpropor0666_v3_p7_bertcat_maxlen60_2fc_iterprotoweight_m09
+
+CUDA_VISIBLE_DEVICES=6 \
+python mcd_neighbor_v6_bert.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v3 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode add \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--prompt_id 7 \
+--update_strategy epoch \
+--log logs/0507_mcd_v6_freeze_01_entpropor0666_v3_p7_add_maxlen60_2fc_epochprotoweight
+
+
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=7 \
+python jan_neighbor_v7.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 0.1 \
+--nbr_mode bert_add \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--prompt_id 7 \
+--adversarial \
+--log logs/0508_janadv_v7_freeze_01_p7_bertadd_maxlen60_2fc_sslpretrain_unshuffletargetloader
+
+CUDA_VISIBLE_DEVICES=6 \
+python jan_neighbor_v7.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 0.1 \
+--nbr_mode qkv_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--nbr_pseudo \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--adversarial \
+--log logs/0508_janadv_v7_freeze_01_qkvcat_sslpretrain_0124newnbr20_limit10_nbrgrad_unshuffletargetloader
+
+
+
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd_neighbor_v6_bert.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
 --nbr_mode bert_add \
 --nbr_dist_thres 20 \
 --nbr_limit 0 \
@@ -1026,6 +1143,336 @@ python mcd_neighbor_v6_bert.py \
 --token_max_len 60 \
 --bert_out_dim 64 \
 --prompt_id 7 \
---log logs/0506_mcd_v6_freeze_01_entpropor0666_v3_p7_bertadd_maxlen60_2fc_protoweight
+--log logs/0509_jan_v6_freeze_01_entpropor0666_v2_p7_bertadd_maxlen60_2fc_bertdim64_unshuffletargetloader
+
+CUDA_VISIBLE_DEVICES=6 \
+python mcd_neighbor_v6_bert.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode qkv_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--nbr_pseudo \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--log logs/0509_jan_v6_freeze_01_entpropor0666_v2_qkvcat_0124newnbr20_limit10_nbrgrad_unshuffletargetloader
+
+CUDA_VISIBLE_DEVICES=9 \
+python mcd_neighbor_v6_bert.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v3 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode qkv_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--nbr_pseudo \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--proto_momentum 0.9 \
+--update_strategy iter \
+--log logs/0509_jan_v6_freeze_01_entpropor0666_v3_qkvcat_0124newnbr20_limit10_nbrgrad_unshuffletargetloader_iterprotoweight_m09
+
+CUDA_VISIBLE_DEVICES=9 \
+python mcd_neighbor_v6_bert.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v3 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode qkv_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 10 \
+--nbr_grad \
+--nbr_pseudo \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--update_strategy epoch \
+--log logs/0509_jan_v6_freeze_01_entpropor0666_v3_qkvcat_0124newnbr20_limit10_nbrgrad_unshuffletargetloader_epochprotoweight
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd_neighbor_v6_bert.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v3 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_add \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--token_max_len 60 \
+--bert_out_dim 64 \
+--prompt_id 7 \
+--update_strategy epoch \
+--log logs/0509_jan_v6_freeze_01_entpropor0666_v3_p7_bertadd_maxlen60_2fc_bertdim64_unshuffletargetloader_epochprotoweight
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd_neighbor_v6_bert.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_add \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--self_train \
+--log logs/0513_mcd_v6_freeze_01_entpropor0666_selftrain
+
+
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd_neighbor_v6_clip.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v3 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--token_max_len 60 \
+--bert_out_dim 64 \
+--prompt_id 7 \
+--log logs/0710_mcd_v6_freeze_01_entpropor0666_v3_p7_clipcat_maxlen60_2fc_bertdim64_unshuffletargetloader
+
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd_neighbor_v6_clip.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v3 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_cat_crossattn \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--token_max_len 60 \
+--bert_out_dim 64 \
+--prompt_id 7 \
+--log logs/0710_mcd_v6_freeze_01_entpropor0666_v3_p7_clipcatcrossattn_maxlen60_2fc_bertdim64_unshuffletargetloader
+
+
+
+
+CUDA_VISIBLE_DEVICES=0,3 \
+python mcd_neighbor_v6_llama.py \
+--epochs 50 \
+--batch-size 1 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v3 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode llama \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--token_max_len 60 \
+--bert_out_dim 64 \
+--prompt_id 7 \
+--log logs/0717_mcd_v6_freeze_01_entpropor0666_v3_p7_llamacat_maxlen60_2fc_bertdim64_unshuffletargetloader
+
+
+
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=8 \
+python jan.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--trade-off 0.1 \
+--interpolatedlinear \
+--adversarial \
+--log logs/0522_jan_adv_01_inter1s
+
+
+CUDA_VISIBLE_DEVICES=8 \
+python jan.py \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--phase test \
+--interpolatedlinear \
+--adversarial \
+--log logs/test
+
+
+
+
+
+
+
+
+CUDA_VISIBLE_DEVICES=9 \
+python mcd_neighbor_v8_2stepsemi.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v3 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode add \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--update_strategy epoch \
+--semi \
+--log logs/0514_mcd_v8_freeze_01_entpropor0666_v3_add_unshuffletargetloader_epochprotoweight_1shot
+
+--proto_momentum 0.9 \
+--update_strategy iter \
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd_neighbor_v8_2stepsemi.py \
+--epochs 50 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v3 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode add \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--update_strategy epoch \
+--semi \
+--self_train \
+--log logs/0514_mcd_v8_freeze_01_entpropor0666_add_unshuffletargetloader_selftrain_1shot
+
+
+
+
+CUDA_VISIBLE_DEVICES=7 \
+python mcd.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--trade-off 0.1 \
+--interpolatedlinear \
+--log logs/0618_mcd_01_interlinear
+
+CUDA_VISIBLE_DEVICES=8 \
+python mcd.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--trade-off 0.1 \
+--interpolatedlinear \
+--log logs/0529_mcd_01_inter1s_650
+--log logs/0529_mcd_01_inter1s_650_meanWOpadding
+
+CUDA_VISIBLE_DEVICES=6 \
+python mcd_new.py \
+--epochs 30 \
+--batch-size 64 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--trade-off 0.1 \
+--interpolatedlinear \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--semi \
+--n_shots 3 \
+--log logs/0619_mcd_01_semi_3shot
+
+
 
 

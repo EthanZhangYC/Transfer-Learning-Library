@@ -28,6 +28,12 @@ from tllib.utils.meter import AverageMeter, ProgressMeter
 from tllib.utils.logger import CompleteLogger
 from tllib.utils.analysis import collect_feature, tsne, a_distance
 
+from tllib.alignment.mcd import ImageClassifierHead, entropy, classifier_discrepancy
+from tllib.utils.data import ForeverDataIterator
+from tllib.utils.metric import accuracy, ConfusionMatrix
+from tllib.utils.logger import CompleteLogger
+
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -83,10 +89,11 @@ def main(args: argparse.Namespace):
     # pool_layer = nn.Identity() if args.no_pool else None
     # classifier = ImageClassifier(backbone, num_classes, bottleneck_dim=args.bottleneck_dim,
     #                              pool_layer=pool_layer, finetune=not args.scratch).to(device)
-    train_source_iter, train_target_iter, val_loader = utils.load_data(args)
+    train_source_iter, train_target_iter, val_loader,_ = utils.load_data(args)
     classifier = models.TSEncoder().to(device)
     classifier_features_dim=64
     num_classes=4
+    F1 = models.Classifier_clf().to(device)
 
     # define loss function
     if args.adversarial:
@@ -110,16 +117,16 @@ def main(args: argparse.Namespace):
     # optimizer = Adam(parameters, args.lr, momentum=args.momentum, weight_decay=args.wd, nesterov=True)
     # lr_scheduler = LambdaLR(optimizer, lambda x: args.lr * (1. + args.lr_gamma * float(x)) ** (-args.lr_decay))
     if args.adversarial:
-        optimizer = Adam([{'params':classifier.parameters()}]+[{"params": theta.parameters(), 'lr': 0.1} for theta in thetas],
+        optimizer = Adam([{'params':classifier.parameters()},{'params':F1.parameters()}]+[{"params": theta.parameters(), 'lr': 0.1} for theta in thetas],
                      args.lr, weight_decay=args.wd, betas=(0.5, 0.99))
     else:
-        optimizer = Adam(classifier.parameters(),args.lr, weight_decay=args.wd, betas=(0.5, 0.99))
+        optimizer = Adam([{'params':classifier.parameters()},{'params':F1.parameters()}],args.lr, weight_decay=args.wd, betas=(0.5, 0.99))
     lr_scheduler=None
 
-    # resume from the best checkpoint
-    if args.phase != 'train':
-        checkpoint = torch.load(logger.get_checkpoint_path('best'), map_location='cpu')
-        classifier.load_state_dict(checkpoint)
+    # # resume from the best checkpoint
+    # if args.phase != 'train':
+    #     checkpoint = torch.load(logger.get_checkpoint_path('best'), map_location='cpu')
+    #     classifier.load_state_dict(checkpoint)
 
     # analysis the model
     if args.phase == 'analysis':
@@ -137,7 +144,11 @@ def main(args: argparse.Namespace):
         return
 
     if args.phase == 'test':
-        acc1 = utils.validate(test_loader, classifier, args, device)
+        ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/0508_jan_adv_01/checkpoints/best.pth'
+        ckpt = torch.load(ckpt_dir, map_location='cuda:0')
+        classifier.load_state_dict(ckpt['G'])#, strict=False)
+        F1.load_state_dict(ckpt['F1'])#, strict=False)
+        acc1 = validate(val_loader, classifier, F1, args, device)
         print(acc1)
         return
 
@@ -146,18 +157,28 @@ def main(args: argparse.Namespace):
     best_epoch = 0
     for epoch in range(args.epochs):
         # train for one epoch
-        train(train_source_iter, train_target_iter, classifier, jmmd_loss, optimizer,
+        train(train_source_iter, train_target_iter, classifier, F1, jmmd_loss, optimizer,
               epoch, args)
 
         # evaluate on validation set
-        acc1 = utils.validate(val_loader, classifier, args, device)
+        results = validate(val_loader, classifier, F1, args, device)
 
-        # remember best acc@1 and save checkpoint
-        torch.save(classifier.state_dict(), logger.get_checkpoint_path('latest'))
-        if acc1 > best_acc1:
+        # # remember best acc@1 and save checkpoint
+        # torch.save(classifier.state_dict(), logger.get_checkpoint_path('latest'))
+        # if acc1 > best_acc1:
+        #     shutil.copy(logger.get_checkpoint_path('latest'), logger.get_checkpoint_path('best'))
+        #     best_epoch = epoch
+        # best_acc1 = max(acc1, best_acc1)
+        
+        torch.save({
+            'G': classifier.state_dict(),
+            'F1': F1.state_dict()
+        }, logger.get_checkpoint_path('latest'))
+        if results > best_acc1:
+            print('copying best ckpt')
             shutil.copy(logger.get_checkpoint_path('latest'), logger.get_checkpoint_path('best'))
+            best_acc1 = results
             best_epoch = epoch
-        best_acc1 = max(acc1, best_acc1)
 
     # print("best_acc1 = {:3.1f}".format(best_acc1))
     print("best_acc1 = {:3.1f}({:d})".format(best_acc1, best_epoch))
@@ -170,7 +191,7 @@ def main(args: argparse.Namespace):
     logger.close()
 
 
-def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator, model: ImageClassifier,
+def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverDataIterator, model: ImageClassifier, F1,
           jmmd_loss: JointMultipleKernelMaximumMeanDiscrepancy, optimizer: Adam,
           epoch: int, args: argparse.Namespace):
     batch_time = AverageMeter('Time', ':4.2f')
@@ -186,14 +207,15 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
 
     # switch to train mode
     model.train()
+    F1.train()
     jmmd_loss.train()
 
     end = time.time()
     for i in range(args.iters_per_epoch):
         # x_s, labels_s = next(train_source_iter)[:2]
         # x_t, = next(train_target_iter)[:1]
-        x_s,labels_s,_ = next(train_source_iter)
-        x_t,_,_ = next(train_target_iter)
+        x_s, labels_s = next(train_source_iter)[:2]
+        x_t, = next(train_target_iter)[:1]
 
 
         x_s = x_s.to(device)
@@ -205,9 +227,11 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
 
         # compute output
         x = torch.cat((x_s, x_t), dim=0)
-        y, f,_,_ = model(x)
+        _,g,_,_ = model(x)
+        y = F1(g, None)
+        y = F.softmax(y, dim=1)
         y_s, y_t = y.chunk(2, dim=0)
-        f_s, f_t = f.chunk(2, dim=0)
+        f_s, f_t = g.chunk(2, dim=0)
 
         cls_loss = F.cross_entropy(y_s, labels_s)
         transfer_loss = jmmd_loss(
@@ -234,6 +258,77 @@ def train(train_source_iter: ForeverDataIterator, train_target_iter: ForeverData
 
         if i % args.print_freq == 0:
             progress.display(i)
+
+
+
+def validate(val_loader, model, F1, args, device) -> float:
+    batch_time = AverageMeter('Time', ':6.3f')
+    losses = AverageMeter('Loss', ':.4e')
+    top1 = AverageMeter('Acc@1', ':6.2f')
+    
+    # per class acc
+    label_dict = {"walk": 0, "bike": 1, "car": 2, "bus": 3}
+    idx_dict={}
+    for k,v in label_dict.items():
+        idx_dict[v]=k
+    nb_classes = 4
+    confusion_matrix = torch.zeros(nb_classes, nb_classes)  
+
+    progress = ProgressMeter(
+        len(val_loader),
+        [batch_time, losses, top1],
+        prefix='Test: ')
+
+    # switch to evaluate mode
+    model.eval()
+    F1.eval()
+    if args.per_class_eval:
+        confmat = ConfusionMatrix(len(args.class_names))
+    else:
+        confmat = None
+
+    with torch.no_grad():
+        end = time.time()
+        for i, data in enumerate(val_loader):
+            images, target = data[:2]
+            images = images.to(device)
+            target = target.to(device)
+
+            # compute output
+            _,f,_,_ = model(images)
+            output = F1(f, None)
+            loss = F.cross_entropy(output, target)
+
+            # measure accuracy and record loss
+            acc1, = accuracy(output, target, topk=(1,))
+            if confmat:
+                confmat.update(target, output.argmax(1))
+            losses.update(loss.item(), images.size(0))
+            top1.update(acc1.item(), images.size(0))
+
+            # per calss acc
+            _, preds = torch.max(output, 1)
+            for t, p in zip(target.view(-1), preds.view(-1)):
+                confusion_matrix[t.long(), p.long()] += 1
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if i % args.print_freq == 0:
+                progress.display(i)
+        
+        # per class acc
+        per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
+        print('per class accuracy:')
+        for idx,acc in enumerate(per_class_acc):
+            print('\t '+str(idx_dict[idx])+': '+str(acc))
+
+        print(' * Acc@1 {top1.avg:.3f}'.format(top1=top1))
+        if confmat:
+            print(confmat.format(args.class_names))
+
+    return top1.avg
 
 
 if __name__ == '__main__':

@@ -393,19 +393,19 @@ class TSEncoder(nn.Module):
         # conv encoder
         x = x.transpose(1, 2)  # B x Ch x T
         x = self.feature_extractor(x)  # B x Co x T
-        ori_conv_feat = x = x.transpose(1, 2)  # B x T x Co
+        conv_feat = x = x.transpose(1, 2)  # B x T x Co
 
-        conv_feat = x = F.avg_pool1d(
+        feat = x = F.avg_pool1d(
             x.transpose(1, 2),
             kernel_size = x.size(1),
         ).transpose(1, 2).squeeze(1)
-        
+        ori_conv_feat=None
 
-        # x = self.dropout(F.relu(self.bn(self.fc1(x))))
-        x = self.dropout(F.relu(self.fc1(x)))
-        # if is_training:
-        #     x.mul_(math.sqrt(1 - self.dropout_p))
-        feat = x
+        # # x = self.dropout(F.relu(self.bn(self.fc1(x))))
+        # x = self.dropout(F.relu(self.fc1(x)))
+        # # if is_training:
+        # #     x.mul_(math.sqrt(1 - self.dropout_p))
+        # feat = x
         
         if self.grl_layer is not None:
             features_adv = self.grl_layer(feat)
