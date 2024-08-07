@@ -1317,7 +1317,7 @@ python mcd_neighbor_v6_clip.py \
 
 
 
-CUDA_VISIBLE_DEVICES=0,3 \
+CUDA_VISIBLE_DEVICES=3 \
 python mcd_neighbor_v6_llama.py \
 --epochs 50 \
 --batch-size 1 \
@@ -1343,6 +1343,58 @@ python mcd_neighbor_v6_llama.py \
 
 
 
+CUDA_VISIBLE_DEVICES=3 \
+python mcd_neighbor_v6_llama_crosssim.py \
+--epochs 30 \
+--batch-size 128 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_add_crosssim \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--token_max_len 60 \
+--token_len 10 \
+--bert_out_dim 64 \
+--prompt_id 7 \
+--log logs/0806_mcd_v6_freeze_01_entpropor0666_v2_p7_llamaadd_crosssim_maxlen60_2fc_bertdim64
+
+CUDA_VISIBLE_DEVICES=3 \
+python mcd_neighbor_v6_llama_crosssim.py \
+--epochs 30 \
+--batch-size 128 \
+-i 294 \
+--seed 42 \
+--lr 5e-4 \
+--wd 1e-4 \
+--interpolatedlinear \
+--loss_mode v2 \
+--trade-off 1 \
+--trade-off-entropy 0.1 \
+--trade-off-pseudo 0.1 \
+--nbr_mode bert_cat \
+--nbr_dist_thres 20 \
+--nbr_limit 0 \
+--pseudo_mode entropyproportion \
+--pseudo_ratio 0.666 \
+--num_head 2 \
+--token_max_len 60 \
+--token_len 10 \
+--bert_out_dim 64 \
+--prompt_id 7 \
+--log logs/0807_mcd_v6_freeze_01_entpropor0666_v2_p7_llamacat_maxlen60_2fc_bertdim64
+
+--nbr_mode bert_add_crosssim_learnableclass \
+--log logs/0806_mcd_v6_freeze_01_entpropor0666_v2_p7_llamaadd_crosssim_learnableclass_maxlen60_2fc_bertdim64
 
 
 

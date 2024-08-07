@@ -37,48 +37,18 @@ from transformers.models.bert.modeling_bert import BertEncoder, BertPooler, Bert
 from transformers import AutoConfig,AutoModel,AutoTokenizer,AutoModelForCausalLM
 from transformers import EncoderDecoderModel, BertTokenizer
 from transformers import CLIPProcessor, CLIPModel, CLIPTokenizer, LlamaTokenizer, LlamaModel
+
                 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-parallel=False
-
-class CrossAttention(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.eps = 1e-8
-        self.scale = dim ** -0.5
-        
-        self.to_q = nn.Linear(dim, dim)
-        self.to_k = nn.Linear(dim, dim)
-        self.to_v = nn.Linear(dim, dim)
-        self.multihead_attn = nn.MultiheadAttention(64, num_heads=args.num_head, batch_first=True)
-
-    def forward(self, query, key):
-
-        
-        # inputs = self.norm_input(inputs)        
-        # k, v = self.to_k(key), self.to_v(value)
-        k = self.to_k(key)
-        q = self.to_q(query)
-        
-        dots = torch.einsum('bid,bd->bi', q, k) * self.scale
-        attn = dots.softmax(dim=1) + self.eps
-        attn = attn / attn.sum(dim=-1, keepdim=True)
-        
-        # output,_ = self.multihead_attn(q, k, v)
 
 
-        # attn = attn / attn.sum(dim=-1, keepdim=True)
-
-        # updates = torch.einsum('bjd,bij->bid', v, attn)
-        
-
-        return attn
         
 
 def main(args: argparse.Namespace):
     logger = CompleteLogger(args.log, args.phase)
     print(args)
+    args.print_freq = args.print_freq * 16 / args.batch_size
 
     if args.seed is not None:
         # random.seed(args.seed)
@@ -96,7 +66,7 @@ def main(args: argparse.Namespace):
     if args.nbr_label_mode == 'combine_each_pt':
         G = models.TSEncoder_new(input_dims=7+4).to(device)
     else:
-        G = models.TSEncoder_new(output_dims=args.bert_out_dim).to(device)
+        G = models.TSEncoder_new().to(device)
     G_ori = models.TSEncoder_new().to(device)
     # G_ori = models.TSEncoder().to(device)
     classifier_features_dim=64
@@ -113,9 +83,9 @@ def main(args: argparse.Namespace):
             F1_t = None
     elif 'cat' in args.nbr_mode:
         if args.nbr_label_mode == 'separate_input':
-            input_dim=args.bert_out_dim*2+args.nbr_label_embed_dim
+            input_dim=64*2+args.nbr_label_embed_dim
         else:
-            input_dim=args.bert_out_dim*2
+            input_dim=64*2
         F1 = models.Classifier_clf(input_dim=input_dim).to(device)
         F2 = models.Classifier_clf(input_dim=input_dim).to(device)
         if args.mean_tea:
@@ -123,10 +93,10 @@ def main(args: argparse.Namespace):
         else:
             F1_t = None
     elif 'add' in args.nbr_mode:
-        F1 = models.Classifier_clf(input_dim=args.bert_out_dim).to(device)
-        F2 = models.Classifier_clf(input_dim=args.bert_out_dim).to(device)
+        F1 = models.Classifier_clf(input_dim=64).to(device)
+        F2 = models.Classifier_clf(input_dim=64).to(device)
         if args.mean_tea:
-            F1_t = models.Classifier_clf(input_dim=args.bert_out_dim).to(device)
+            F1_t = models.Classifier_clf(input_dim=64).to(device)
         else:
             F1_t = None
     else:
@@ -134,60 +104,36 @@ def main(args: argparse.Namespace):
     # F1 = models.ViT(use_auxattn=True, double_attn=True).to(device)
     # F2 = models.ViT(use_auxattn=True, double_attn=True).to(device)
     attn_net = models.AttnNet().to(device)
-    dim_converter = models.DimConverter(input_dim=4096, out_dim=args.bert_out_dim).to(device)
+    dim_converter = models.DimConverter(input_dim=4096).to(device)
     
     multihead_attn = nn.MultiheadAttention(64, num_heads=args.num_head, batch_first=True).to(device)
     nbr_label_encoder = models.LabelEncoder(input_dim=4, embed_dim=args.nbr_label_embed_dim).to(device)
-    
-    cross_attn = CrossAttention(dim=args.bert_out_dim).to(device)
 
-    # # encoder_config = AutoConfig.from_pretrained("bert-base-uncased")#, force_download=True)
-    # # enc_tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")#, force_download=True)
-    # # bert_model = AutoModel.from_pretrained("bert-base-uncased", config=encoder_config).to(device)#, force_download=True).to(device)  
-    # encoder_config = AutoConfig.from_pretrained("openai/clip-vit-base-patch32")
-    # enc_tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
-    # bert_model = AutoModel.from_pretrained("openai/clip-vit-base-patch32", config=encoder_config).to(device)
+    # encoder_config = AutoConfig.from_pretrained("bert-base-uncased")#, force_download=True)
+    # enc_tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")#, force_download=True)
+    # bert_model = AutoModel.from_pretrained("bert-base-uncased", config=encoder_config).to(device)#, force_download=True).to(device)    
+
     
-    model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-    # model_id = "meta-llama/Meta-Llama-3.1-8B"
-    
+    model_id = "meta-llama/Meta-Llama-3-8B-Instruct"    
     access_token = "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"
-    # encoder_config = AutoConfig.from_pretrained(model_id, token=access_token, force_download=True)
-    # # enc_tokenizer = CLIPTokenizer.from_pretrained(model_id)
-    # # enc_tokenizer = LlamaTokenizer.from_pretrained("huggyllama/llama-7b", add_eos_token=True, token=access_token)
-    # enc_tokenizer = AutoTokenizer.from_pretrained(model_id, token=access_token, force_download=True)
-    # enc_tokenizer.pad_token = enc_tokenizer.eos_token
-    # bert_model = AutoModelForCausalLM.from_pretrained(model_id, config=encoder_config, token=access_token, force_download=True).to(device)
     encoder_config = AutoConfig.from_pretrained(model_id, token=access_token)
     enc_tokenizer = AutoTokenizer.from_pretrained(model_id)#, token=access_token)
-    # enc_tokenizer = LlamaTokenizer.from_pretrained("huggyllama/llama-7b", add_eos_token=True, token=access_token)
     enc_tokenizer.pad_token = enc_tokenizer.eos_token
-    encoder_config.max_position_embeddings=16384
-    bert_model = AutoModelForCausalLM.from_pretrained(model_id, config=encoder_config, token=access_token).to(device)
+    # encoder_config.max_position_embeddings=16384
+    # bert_model = AutoModelForCausalLM.from_pretrained(model_id, config=encoder_config, token=access_token).to(device)
+    bert_model = AutoModel.from_pretrained(model_id, config=encoder_config, token=access_token).to(device)
     
-    # # if len(args.gpu) > 1:
-    # if parallel:
-    #     device_id = []
-    #     for i in range((2 + 1) // 2):
-    #         device_id.append(i)
-    #     bert_model = nn.DataParallel(bert_model, device_ids=device_id).to(device)
-
-
-    bert_learnable_tokens = torch.nn.Parameter(torch.rand([args.token_len,768]), requires_grad=True)
-    bert_learnable_tokens_class = torch.nn.Parameter(torch.rand([args.token_len,768]), requires_grad=True)
+    for name,param in bert_model.named_parameters():
+        param.requires_grad = False 
+    
+    bert_learnable_tokens = torch.nn.Parameter(torch.rand([args.token_len,4096]), requires_grad=True)
+    bert_learnable_tokens_class = torch.nn.Parameter(torch.rand([args.token_len,4096]), requires_grad=True)
     
     
     ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/mcd_1015/checkpoints/best.pth'
     # ckpt_dir='/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/0508_jan_adv_01/checkpoints/best.pth'
     ckpt = torch.load(ckpt_dir, map_location='cuda:0')
     G_ori.load_state_dict(ckpt['G'], strict=False)
-    if args.bert_out_dim!=64:
-        del ckpt['G']['feature_extractor.net.10.conv1.conv.weight']
-        del ckpt['G']['feature_extractor.net.10.conv1.conv.bias']
-        del ckpt['G']['feature_extractor.net.10.conv2.conv.weight']
-        del ckpt['G']['feature_extractor.net.10.conv2.conv.bias']
-        del ckpt['G']['feature_extractor.net.10.projector.weight']
-        del ckpt['G']['feature_extractor.net.10.projector.bias']
     if args.nbr_label_mode == 'combine_each_pt':
         del ckpt['G']['input_fc.weight']
         del ckpt['G']['input_fc.bias']
@@ -216,9 +162,9 @@ def main(args: argparse.Namespace):
         for param in G.parameters():
             param.requires_grad = False 
     
-    _,_,_,_,train_loader_target = utils.load_data(args)
+    _,_,_,train_loader_target,_ = utils.load_data(args)
     # validate_test(val_loader, G_ori, F1_ori, args) 
-    pseudo_labels,pseudo_labels_mask = eval('get_pseudo_labels_by_'+args.pseudo_mode)(train_loader_target, G_ori, F1_ori, args, enc_tokenizer, bert_model)
+    pseudo_labels,pseudo_labels_mask = eval('get_pseudo_labels_by_'+args.pseudo_mode)(train_loader_target, G_ori, F1_ori, args)
     train_source_iter, train_target_iter, val_loader,_,_,source_loader,_ = utils.load_data_neighbor_v3(args, pseudo_labels, pseudo_labels_mask, enc_tokenizer=enc_tokenizer)
     del G_ori, F1_ori
     
@@ -226,15 +172,14 @@ def main(args: argparse.Namespace):
         {"params": G.parameters()},
         {"params": dim_converter.parameters()},
         {"params": bert_learnable_tokens},
-        {"params": bert_learnable_tokens_class},
+        {"params": bert_learnable_tokens_class}
     ], args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
     optimizer_f = Adam([
         {"params": F1.parameters()},
         {"params": F2.parameters()},
         {"params": multihead_attn.parameters()},
         {"params": attn_net.parameters()},
-        {"params": nbr_label_encoder.parameters()},
-        {"params": cross_attn.parameters()}
+        {"params": nbr_label_encoder.parameters()}
         # {"params": dim_converter.parameters()},
         # {"params": bert_learnable_tokens}
     ], args.lr, weight_decay=args.weight_decay, betas=(0.5, 0.99))
@@ -276,9 +221,9 @@ def main(args: argparse.Namespace):
     best_results = None
     best_epoch = 0
     if 'cat' in args.nbr_mode:
-        proto_s = torch.rand(args.bert_out_dim*2,4).to(device)
+        proto_s = torch.rand(64*2,4).to(device)
     else:
-        proto_s = torch.rand(args.bert_out_dim,4).to(device)
+        proto_s = torch.rand(64,4).to(device)
     
     for epoch in range(args.epochs):
         
@@ -288,11 +233,11 @@ def main(args: argparse.Namespace):
                 nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader)
         else:
             proto_s = train(train_source_iter, train_target_iter, G, F1, F2, attn_net, optimizer_g, optimizer_f, epoch, args, F1_t, multihead_attn, \
-                nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader, cross_attn)
+                nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader)
 
         # evaluate on validation set
         results = validate(val_loader, G, F1, F2, attn_net, args, F1_t, multihead_attn, \
-            nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, cross_attn)
+            nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class)
 
         # remember best acc@1 and save checkpoint
         torch.save({
@@ -392,7 +337,7 @@ def softmax_mse_loss(input_logits, target_logits, masks=None):
 
 def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterator,
           G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net: nn.Module,
-          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader, cross_attn):
+          optimizer_g: SGD, optimizer_f: SGD, epoch: int, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, proto_s, source_loader):
     batch_time = AverageMeter('Time', ':3.1f')
     data_time = AverageMeter('Data', ':3.1f')
     losses = AverageMeter('Loss', ':3.2f')
@@ -413,7 +358,6 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
     G.train()
     F1.train()
     dim_converter.train()
-    
     bert_model.eval()
     if args.mean_tea:
         F1_t.eval()
@@ -422,10 +366,6 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
     attn_net.train()
     multihead_attn.train()
     nbr_label_encoder.train()
-    cross_attn.train()
-    
-
-        
 
     end = time.time()
     for i in range(args.iters_per_epoch):
@@ -465,7 +405,7 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
         if 'perpt' in args.nbr_mode:
             _,_,g,_,_,_,_ = G(x, args, mask_early=args.mask_early, mask_late=args.mask_late)
         else:
-            _,g,g_perpt,_,_,_,_ = G(x, args, mask_early=args.mask_early, mask_late=args.mask_late)
+            _,g,_,_,_,_,_ = G(x, args, mask_early=args.mask_early, mask_late=args.mask_late)
         if args.mask_late:
             g,g_list = g
         g_s,g_t = g[:bs],g[bs:]
@@ -494,59 +434,68 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
         #         _,feat_tgt_avgpool_neighbor,_,_,_,_,_ = G(neighbor)
         #         tmp_list.append(feat_tgt_avgpool_neighbor.cpu())
         #     feat_tgt_avgpool_neighbor = torch.cat(tmp_list,dim=0)
-
-
+        
 
         aux_feat=None
         if 'bert' in args.nbr_mode:
             bert_input_src, bert_input_tgt = torch.stack(bert_input_src).to(device), torch.stack(bert_input_tgt).to(device)
             bert_input = torch.cat([bert_input_src, bert_input_tgt],dim=0) #128,60,768
-
-            bert_feature = bert_model(bert_input)
-            bert_feature = bert_feature[0]
-            bert_feature = dim_converter(bert_feature)
-            # bert_feature  = bert_feature[1]
-            # bert_feature = self.text_projection(bert_feature)
+            bert_embedding = bert_model.embed_tokens(bert_input)
+            if 'learnable' in args.nbr_mode:
+                bert_embedding = torch.cat([bert_learnable_tokens.unsqueeze(0).tile(args.batch_size*2,1,1) ,bert_embedding],dim=1) #128,10,768 vs #128,60,768
             
-            # bert_embedding = bert_model.embeddings(bert_input)
-            # if 'learnable' in args.nbr_mode:
-            #     raise NotImplemented
-            #     bert_embedding = torch.cat([bert_learnable_tokens.unsqueeze(0).tile(args.batch_size*2,1,1) ,bert_embedding],dim=1) #128,10,768 vs #128,60,768
-            
-            # if 'crosssim' in args.nbr_mode:
-            #     raise NotImplemented
-            #     bert_word_class = ['A trajectory of person','A trajectory of bike','A trajectory of car','A trajectory of public transport']
-            #     bert_input_class = []
-            #     for sentence in bert_word_class:
-            #         bert_input_class.append(torch.as_tensor(enc_tokenizer(sentence, max_length = args.token_max_len, truncation = True, padding = "max_length")['input_ids']))
-            #     bert_input_class = torch.stack(bert_input_class).to(device)
-            #     bert_embedding_class = bert_model.embeddings(bert_input_class)
-            #     if 'learnableclass' in args.nbr_mode:
-            #         bert_embedding = torch.cat([bert_learnable_tokens_class.unsqueeze(0).tile(4,1,1),bert_embedding_class],dim=1) #10,768 vs #4,60,768
-            #     bert_embedding = torch.cat([bert_embedding, bert_embedding_class],dim=0) #128,60,768 vs 4,60,768
+            if 'crosssim' in args.nbr_mode:
+                bert_word_class = ['A trajectory of person','A trajectory of bike','A trajectory of car','A trajectory of public transport']
+                bert_input_class = []
+                for sentence in bert_word_class:
+                    bert_input_class.append(torch.as_tensor(enc_tokenizer(sentence, max_length = args.token_max_len, truncation = True, padding = "max_length")['input_ids']))
+                bert_input_class = torch.stack(bert_input_class).to(device)
+                bert_embedding_class = bert_model.embed_tokens(bert_input_class)
+                if 'learnableclass' in args.nbr_mode:
+                    bert_embedding = torch.cat([bert_learnable_tokens_class.unsqueeze(0).tile(4,1,1),bert_embedding_class],dim=1) #10,768 vs #4,60,768
+                bert_embedding = torch.cat([bert_embedding, bert_embedding_class],dim=0) #128,60,768 vs 4,60,768
                 
-            # bert_feature = bert_model.encoder(bert_embedding) #128.70.768
+            past_seen_tokens = 0
+            cache_position = torch.arange(past_seen_tokens, past_seen_tokens + bert_embedding.shape[1], device=bert_embedding.device)
+            position_ids = cache_position.unsqueeze(0)
+            causal_mask = bert_model._update_causal_mask(None, bert_embedding, cache_position)
+            hidden_states = bert_embedding
+            for decoder_layer in bert_model.layers:
+                layer_outputs = decoder_layer(
+                    hidden_states,
+                    attention_mask=causal_mask,
+                    position_ids=position_ids,
+                    past_key_value=None,
+                    output_attentions=None,
+                    use_cache=None,
+                    cache_position=cache_position,
+                )
+                hidden_states = layer_outputs[0]
+            hidden_states = bert_model.norm(hidden_states)
+            bert_feature = hidden_states
+            bert_feature = torch.mean(bert_feature,dim=1)
+                
+            # bert_feature = bert_model.layers(bert_embedding) #128.70.768
             # bert_feature = bert_model.pooler(bert_feature[0]) #128,768
-            # bert_feature = dim_converter(bert_feature)
-            
-            if 'crossattn' in args.nbr_mode:
-                attn_weight = cross_attn(g_perpt, bert_feature)
-                g = torch.sum(g_perpt*attn_weight.unsqueeze(2), dim=1)
-                g_s,g_t = g[:bs],g[bs:]
+            bert_feature = dim_converter(bert_feature)
             
             if 'crosssim' in args.nbr_mode:
                 bert_feature_class = bert_feature[-4-args.token_len:]
                 bert_feature = bert_feature[:-4]
             bert_feature_s,bert_feature_t = bert_feature[:bs],bert_feature[bs:]
             
+            # pdb.set_trace()
+            # torch.isnan(bert_feature).any()
+            # torch.isnan(g).any()
+            # (g_s + bert_feature_s).shape
             if 'cat' in args.nbr_mode:
-                pdb.set_trace()
                 g_s = torch.cat([g_s,bert_feature_s],dim=1)
                 g_t = torch.cat([g_t,bert_feature_t],dim=1)
             else:
                 g_s = g_s + bert_feature_s
                 g_t = g_t + bert_feature_t
             g = torch.cat((g_s, g_t), dim=0)
+            
             
             if 'crosssim' in args.nbr_mode:
                 y_1 = torch.matmul(g,bert_feature_class.T) # 128,64 x 64,4 -> 128,4
@@ -1062,6 +1011,8 @@ def train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataIterat
                     bert_embedding = bert_model.embeddings(bert_input)
                     if 'learnable' in args.nbr_mode:
                         bert_embedding = torch.cat([bert_learnable_tokens.unsqueeze(0).tile(args.batch_size*2,1,1) ,bert_embedding],dim=1) #128,10,768 vs #128,60,768
+                    else:
+                        args.token_len = 0
                     
                     if 'crosssim' in args.nbr_mode:
                         bert_word_class = ['A trajectory of person','A trajectory of bike','A trajectory of car','A trajectory of public transport']
@@ -1473,7 +1424,7 @@ def self_train(train_src_iter: ForeverDataIterator, train_tgt_iter: ForeverDataI
 
 
 
-def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class, cross_attn) -> Tuple[float, float]:
+def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: ImageClassifierHead, attn_net:nn.Module, args: argparse.Namespace, F1_t, multihead_attn, nbr_label_encoder, bert_model, dim_converter, bert_learnable_tokens, enc_tokenizer, bert_learnable_tokens_class) -> Tuple[float, float]:
     batch_time = AverageMeter('Time', ':6.3f')
     top1_1 = AverageMeter('Acc_1', ':6.2f')
     top1_2 = AverageMeter('Acc_2', ':6.2f')
@@ -1534,37 +1485,52 @@ def validate(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, F2: 
             if 'perpt' in args.nbr_mode:
                 _,_,g,_,_,_,_ = G(x, args)
             else:
-                _,g,g_perpt,_,_,_,_ = G(x, args)
+                _,g,_,_,_,_,_ = G(x, args)
             # aux_feat = torch.stack([images[:,:,0],images[:,:,-1]], axis=2)
-
+            
+            
             aux_feat = None
             if 'bert' in args.nbr_mode:
                 bert_input = torch.stack(bert_input).to(device)
                 # bert_feature = bert_encoder(input_ids=bert_input)
                 # bert_feature = bert_feature[1]
-                
-                bert_feature = bert_model.get_text_features(bert_input)
-                bert_feature = dim_converter(bert_feature)
 
-                # bert_embedding = bert_model.embeddings(bert_input)
-                # if 'learnable' in args.nbr_mode:
-                #     bert_embedding = torch.cat([bert_learnable_tokens.unsqueeze(0).tile(bs,1,1) ,bert_embedding],dim=1) #128,10,768 vs #128,60,768
+                bert_embedding = bert_model.embed_tokens(bert_input)
+                if 'learnable' in args.nbr_mode:
+                    bert_embedding = torch.cat([bert_learnable_tokens.unsqueeze(0).tile(bs,1,1) ,bert_embedding],dim=1) #128,10,768 vs #128,60,768
                 
-                # if 'crosssim' in args.nbr_mode:
-                #     bert_word_class = ['A trajectory of person','A trajectory of bike','A trajectory of car','A trajectory of public transport']
-                #     bert_input_class = []
-                #     for sentence in bert_word_class:
-                #         bert_input_class.append(torch.as_tensor(enc_tokenizer(sentence, max_length = args.token_max_len, truncation = True, padding = "max_length")['input_ids']))
-                #     bert_input_class = torch.stack(bert_input_class).to(device)
-                #     bert_embedding_class = bert_model.embeddings(bert_input_class)
-                #     bert_embedding = torch.cat([bert_embedding, bert_embedding_class],dim=0) #128,60,768 vs 4,60,768
+                if 'crosssim' in args.nbr_mode:
+                    bert_word_class = ['A trajectory of person','A trajectory of bike','A trajectory of car','A trajectory of public transport']
+                    bert_input_class = []
+                    for sentence in bert_word_class:
+                        bert_input_class.append(torch.as_tensor(enc_tokenizer(sentence, max_length = args.token_max_len, truncation = True, padding = "max_length")['input_ids']))
+                    bert_input_class = torch.stack(bert_input_class).to(device)
+                    bert_embedding_class = bert_model.embed_tokens(bert_input_class)
+                    bert_embedding = torch.cat([bert_embedding, bert_embedding_class],dim=0) #128,60,768 vs 4,60,768
+                
+                past_seen_tokens = 0
+                cache_position = torch.arange(past_seen_tokens, past_seen_tokens + bert_embedding.shape[1], device=bert_embedding.device)
+                position_ids = cache_position.unsqueeze(0)
+                causal_mask = bert_model._update_causal_mask(None, bert_embedding, cache_position)
+                hidden_states = bert_embedding
+                for decoder_layer in bert_model.layers:
+                    layer_outputs = decoder_layer(
+                        hidden_states,
+                        attention_mask=causal_mask,
+                        position_ids=position_ids,
+                        past_key_value=None,
+                        output_attentions=None,
+                        use_cache=None,
+                        cache_position=cache_position,
+                    )
+                    hidden_states = layer_outputs[0]
+                hidden_states = bert_model.norm(hidden_states)
+                bert_feature = hidden_states
+                bert_feature = torch.mean(bert_feature,dim=1)
                     
                 # bert_feature = bert_model.encoder(bert_embedding) #128.70.768
                 # bert_feature = bert_model.pooler(bert_feature[0]) #128,768
-                # bert_feature = dim_converter(bert_feature)
-                if 'crossattn' in args.nbr_mode:
-                    attn_weight = cross_attn(g_perpt, bert_feature)
-                    g = torch.sum(g_perpt*attn_weight.unsqueeze(2), dim=1)
+                bert_feature = dim_converter(bert_feature)
                 
                 if 'crosssim' in args.nbr_mode:
                     bert_feature_class = bert_feature[-4:]
@@ -2048,35 +2014,35 @@ def get_pseudo_labels_by_entropyproportion(val_loader: DataLoader, G: nn.Module,
     
     
     
-    cnt = 0
-    enable_dropout(F1)
-    per_class_dict={0:[],1:[],2:[],3:[]}
-    with torch.no_grad():
-        for i, data in enumerate(val_loader):
-            images = data[0]
-            labels = data[1]
-            images,labels = images.to(device), labels.to(device)
-            _,g,_,_,_,_,_ = G(images)
+    # cnt = 0
+    # enable_dropout(F1)
+    # per_class_dict={0:[],1:[],2:[],3:[]}
+    # with torch.no_grad():
+    #     for i, data in enumerate(val_loader):
+    #         images = data[0]
+    #         labels = data[1]
+    #         images,labels = images.to(device), labels.to(device)
+    #         _,g,_,_,_,_,_ = G(images)
             
-            all_y_list=[]
-            for idx in range(5):
-                y = F1(g, None)
-                all_y_list.append(F.softmax(y,dim=1))
+    #         all_y_list=[]
+    #         for idx in range(5):
+    #             y = F1(g, None)
+    #             all_y_list.append(F.softmax(y,dim=1))
             
-            cnt += images.shape[0]
+    #         cnt += images.shape[0]
             
-            preds = torch.stack(all_y_list, dim=0)
-            preds = torch.mean(preds, dim=0) 
-            entropy = -1.0*torch.mean(preds*torch.log(preds + 1e-6), dim=1) #, keepdim=True) 
-            entropy = entropy.tolist()
-            for idx,ent in enumerate(entropy):
-                per_class_dict[y_list[i*args.batch_size+idx]].append((i*args.batch_size+idx, ent))
+    #         preds = torch.stack(all_y_list, dim=0)
+    #         preds = torch.mean(preds, dim=0) 
+    #         entropy = -1.0*torch.mean(preds*torch.log(preds + 1e-6), dim=1) #, keepdim=True) 
+    #         entropy = entropy.tolist()
+    #         for idx,ent in enumerate(entropy):
+    #             per_class_dict[y_list[i*args.batch_size+idx]].append((i*args.batch_size+idx, ent))
     
     # # # pdb.set_trace()
     # # # np.save("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/entropy_per_class_dict.npy", per_class_dict)
     
-    # cnt = 18833
-    # per_class_dict = np.load("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/entropy_per_class_dict.npy", allow_pickle=True).item()
+    cnt = 18833
+    per_class_dict = np.load("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/entropy_per_class_dict.npy", allow_pickle=True).item()
             
     mask_list_propor = torch.zeros(cnt)
     for c in per_class_dict:
@@ -2310,209 +2276,6 @@ def get_pseudo_labels_by_confidence_nbr(val_loader: DataLoader, G: nn.Module, F1
 
 
 
-def traj2str(traj):
-    lat_min,lat_max = (45.230416, 45.9997262293)
-    lon_min,lon_max = (-74.31479102, -72.81248199999999)
-    
-    # # tmp_seg = np.array(pt_list)[:,:3]
-    traj[:,0] = traj[:,0] * (lat_max-lat_min) + lat_min
-    traj[:,1] = traj[:,1] * (lon_max-lon_min) + lon_min
-    
-    tmp_str = ''
-    for pt in traj:
-        # 5.0000e+00, 1.3483e-04, 2.7055e-02, 5.0085e-01, 2.6915e-02, 1.7343e+00,
-        # (45.557204,-73.721414,5.0,6.837562,1.367512,0.002801,-0.000257,27.604881,1)
-        if pt[2]==0:
-            break
-        tmp_str += '(%.5f,%.5f,%.1f), '%(pt[0],pt[1],pt[2])
-        # tmp_str += '(%.1f,%.7f,%.3f,%.3f,%.3f,%.3f), '%(pt[0],pt[1],pt[2],pt[3],pt[4],pt[5])
-        
-    return tmp_str
-    
-def sum_params(model):
-    s = []
-    for p in model.parameters():
-        dims = p.size()
-        n = p.cpu().data.numpy()
-        s.append((dims, np.sum(n)))
-    return s
-
-def get_pseudo_labels_by_llama(val_loader: DataLoader, G: nn.Module, F1: ImageClassifierHead, args: argparse.Namespace, enc_tokenizer, bert_model):
-    top1 = AverageMeter('Acc_1', ':6.2f')
-    
-    nb_classes = 4
-    confusion_matrix = torch.zeros(nb_classes, nb_classes) 
-    label_dict = {"walk": 0, "bike": 1, "car": 2, "train": 3}
-    idx_dict={}
-    for k,v in label_dict.items():
-        idx_dict[v]=k
-        
-    G.eval()
-    F1.eval()
-    # F1.train()
-    # attn_net.eval()
-    bert_model.eval()
-    
-    cnt = 0
-    THRESHOLD=args.pseudo_thres
-    y_list=[]
-    mask_list_conf=[]
-    pred_list=[]
-    label_list=[]
-    label_dict_cnt = [0,0,0,0]
-    pred_dict_cnt = [0,0,0,0]
-
-    with torch.no_grad():
-        for i, data in enumerate(val_loader):
-            if i>1000:
-                break
-            print(i)
-
-            images = data[0]
-            labels = data[1]
-            images,labels = images.to(device), labels.to(device)
-            bs = images.shape[0]
-            cnt += images.shape[0]
-                                
-            # messages = [
-            #     # {"role": "system", "content": "Given a series of GPS points, what would be a good prompt for transportation mode classification?"},
-            #     # {"role": "system", "content": "I will give you a series of numbers, which are actually the points from a GPS trajectory. For each point, the (latitude, longitude, time interval, distance interval, speed, acceleration, jerk, bearing rate, whether it’s interpolated points) are included in the tuples. It can only belong to a trajectory of walk, bike, car or public transport. Can you tell me what kind of transportation mode is the given trajectory? Can you use it as the prompt for classifying the data I provided later? Please skip the analysis, give me the result directly."},
-            #     # {"role": "system", "content": "It sounds great. Can you use it as the prompt for classifying the data I provided later?"},
-            #     # {"role": "user", "content": "(45.557204,-73.721414,5.0), (45.557436,-73.721612,22.0), (45.557718,-73.721634,22.0), (45.557989,-73.721650,22.0), (45.558261,-73.721772,26.0), (45.558310,-73.721393,20.0), (45.558152,-73.721653,20.0), (45.553970,-73.668352,832.0), (45.553829,-73.668683,57.0), (45.553577,-73.668850,15.0), (45.553317,-73.668980,25.0), (45.553062,-73.669130,24.0), (45.552849,-73.668892,34.0), (45.552744,-73.668531,20.0), (45.552618,-73.668170,27.0), (45.552850,-73.669364,113.0), (45.552460,-73.669867,13.0), (45.550822,-73.670827,38.0), (45.549910,-73.671301,10.0), (45.548493,-73.672104,10.0), (45.547684,-73.672574,10.0), (45.547419,-73.672745,15.0), (45.546397,-73.673367,10.0), (45.545284,-73.674056,10.0), (45.544068,-73.674836,11.0), (45.542825,-73.675655,11.0), (45.541778,-73.676276,10.0), (45.540529,-73.677031,10.0), (45.539251,-73.677833,10.0), (45.538297,-73.678429,10.0), (45.538029,-73.678594,31.0), (45.537133,-73.679143,10.0), (45.535854,-73.679942,11.0)"},
-            #     # {"role": "user", "content": "(45.557204,-73.721414,5.0,6.837562,1.367512,0.002801,-0.000257,27.604881,1), (45.557436,-73.721612,22.0,7.145668,1.429134,-0.002843,-0.000174,0.786891,1), (45.557718,-73.721634,22.0,6.832986,1.366597,-0.006673,0.000679,15.076306,1), (45.557989,-73.721650,22.0,6.098987,1.219797,0.008257,-0.000486,262.973272,1), (45.558261,-73.721772,26.0,7.172369,1.434474,-0.004381,0.008996,149.459488,1), (45.558310,-73.721393,20.0,6.712347,1.342469,0.184534,-0.009497,132.667465,1), (45.558152,-73.721653,20.0,25.165787,5.033157,-0.005412,0.000036,142.282111,1), (45.553970,-73.668352,832.0,2.650395,0.530079,0.024640,-0.001215,33.794791,1), (45.553829,-73.668683,57.0,9.672858,1.934572,-0.044598,0.002935,5.579135,1), (45.553577,-73.668850,15.0,6.105037,1.221007,0.002365,-0.000751,3.181645,1), (45.553317,-73.668980,25.0,6.400608,1.280122,-0.016399,0.001464,60.578510,1), (45.553062,-73.669130,24.0,4.432750,0.886550,0.018733,-0.001075,29.374427,1), (45.552849,-73.668892,34.0,7.617345,1.523469,-0.017820,0.000315,3.994660,1), (45.552744,-73.668531,20.0,5.835375,1.167075,-0.011513,0.001620,168.965033,1), (45.552618,-73.668170,27.0,4.281056,0.856211,0.032225,0.000179,63.361399,1), (45.552850,-73.669364,113.0,22.488072,4.497614,0.052453,0.007337,19.794751,1), (45.552460,-73.669867,13.0,25.897491,5.179498,0.147828,0.012304,2.293827,1), (45.550822,-73.670827,38.0,53.984743,10.796949,0.615396,-0.142726,1.605788,1), (45.549910,-73.671301,10.0,84.754550,16.950910,-0.811859,0.019237,0.525576,1), (45.548493,-73.672104,10.0,44.161601,8.832320,-0.619486,0.115066,2.206381,1), (45.547684,-73.672574,10.0,10.089879,2.017976,0.646236,-0.033321,1.298255,1), (45.547419,-73.672745,15.0,61.788767,12.357753,0.113098,-0.011476,0.401542,1), (45.546397,-73.673367,10.0,67.443669,13.488734,-0.001663,0.003563,0.718576,1), (45.545284,-73.674056,10.0,67.360506,13.472101,0.033970,-0.013386,0.604187,1), (45.544068,-73.674836,11.0,69.228856,13.845771,-0.113273,0.032940,2.216587,1), (45.542825,-73.675655,11.0,62.998847,12.599769,0.249067,-0.020584,0.368066,1), (45.541778,-73.676276,10.0,75.452217,15.090443,0.043226,-0.043837,0.799639,1), (45.540529,-73.677031,10.0,77.613526,15.522705,-0.395143,-0.065707,0.110148,1), (45.539251,-73.677833,10.0,57.856374,11.571275,-1.052212,0.136798,0.336597,1), (45.538297,-73.678429,10.0,5.245790,1.049158,0.315772,0.000374,0.039369,1), (45.538029,-73.678594,31.0,54.190416,10.838083,0.327369,-0.047073,0.392679,1), (45.537133,-73.679143,10.0,70.558881,14.111776,-0.143359,-0.083441,1.255495,1), (45.535854,-73.679942,11.0,62.674115,12.534823,-1.061208,0.111739,1.882986,1)"},
-            #     {"role": "system", "content": "I will give you a series of numbers, which are actually the points from a GPS trajectory. For each point, the (latitude, longitude, time interval) are included in the tuples. It can only belong to a trajectory of walk, bike, car or public transport. Can you tell me what kind of transportation mode is the given trajectory? Can you use it as the prompt for classifying the data I provided later? Please skip the analysis, give me the result directly."},
-            #     {"role": "user", "content": "(45.557204,-73.721414,5.0), (45.557436,-73.721612,22.0), (45.557718,-73.721634,22.0), (45.557989,-73.721650,22.0), (45.558261,-73.721772,26.0), (45.558310,-73.721393,20.0), (45.558152,-73.721653,20.0), (45.553970,-73.668352,832.0), (45.553829,-73.668683,57.0), (45.553577,-73.668850,15.0), (45.553317,-73.668980,25.0), (45.553062,-73.669130,24.0), (45.552849,-73.668892,34.0), (45.552744,-73.668531,20.0), (45.552618,-73.668170,27.0), (45.552850,-73.669364,113.0), (45.552460,-73.669867,13.0), (45.550822,-73.670827,38.0), (45.549910,-73.671301,10.0), (45.548493,-73.672104,10.0), (45.547684,-73.672574,10.0), (45.547419,-73.672745,15.0), (45.546397,-73.673367,10.0), (45.545284,-73.674056,10.0), (45.544068,-73.674836,11.0), (45.542825,-73.675655,11.0), (45.541778,-73.676276,10.0), (45.540529,-73.677031,10.0), (45.539251,-73.677833,10.0), (45.538297,-73.678429,10.0), (45.538029,-73.678594,31.0), (45.537133,-73.679143,10.0), (45.535854,-73.679942,11.0)"},
-            # ]
-            
-            # list_sum = sum_params(bert_model)
-            # total_sum=0
-            # for sum_item in list_sum:
-            #     total_sum+=sum_item[1]
-            # print(total_sum)
-            
-            for idx in range(bs):
-                traj,label = images[idx], labels[idx]
-                input_seg = traj2str(traj)
-                # messages = [
-                #     {"role": "system", "content": "I will give you a series of numbers, which are actually the points from a GPS trajectory. For each point, the (latitude, longitude, time interval) are included in the tuples. It can only belong to a trajectory of walk, bike, car or public transport. Can you tell me what kind of transportation mode is the given trajectory? Please skip the analysis, give me the result directly."},
-                #     # time interval, distance interval, speed, acceleration, jerk, bearing rate) 
-                #     {"role": "user", "content": input_seg},
-                # ] p1
-                # messages = [
-                #     {"role": "system", "content": "I will give you a series of numbers, which are actually the points from a GPS trajectory. For each point, the (latitude, longitude, time interval) are included in the tuples. It can only belong to either a trajectory of walk, bike, car or public transport. Can you tell me what kind of transportation mode is the given trajectory? Please skip the analysis, give me the result directly."},
-                #     # time interval, distance interval, speed, acceleration, jerk, bearing rate) 
-                #     {"role": "user", "content": input_seg},
-                # ] p2
-                # messages = [
-                #     {"role": "system", "content": "Here is the task: you will be given a series of GPS points represented by tuples respectively, where (latitude, longitude, time interval) are included in the tuples. The provided GPS trajectory can only belong to either a trajectory of walk, bike, car or public transport. Better considering the maximum and average features during classiifcation, such as speed, acceleration rate, jerk and bearing rate. Don't show me the analysis process, give me the final result directly."}, 
-                #     {"role": "user", "content": input_seg},
-                # ] p3
-                messages = [
-                    {"role": "system", "content": "Here is the task: you will be given a series of GPS points represented by tuples respectively, where (latitude, longitude, time interval) are included in the tuples. The provided GPS trajectory can only belong to either a trajectory of walk, bike, car or public transport. Better considering the maximum and average features during classiifcation, such as speed, acceleration rate, and bearing rate. Don't show me the analysis process, give me the final result directly."}, 
-                    {"role": "user", "content": input_seg},
-                ] 
-
-                # # MAX_TOKEN_THRES=7800
-                # # if input_ids.shape[1]>MAX_TOKEN_THRES:
-                # #     input_ids = input_ids[:,:MAX_TOKEN_THRES]
-
-
-                input_ids = enc_tokenizer.apply_chat_template(messages,add_generation_prompt=True,return_tensors="pt").to(device)
-                terminators = [enc_tokenizer.eos_token_id,enc_tokenizer.convert_tokens_to_ids("<|eot_id|>")]
-                outputs = bert_model.generate(input_ids,max_new_tokens=2560,eos_token_id=terminators,do_sample=True,temperature=0.6,top_p=0.9)
-                response = outputs[0][input_ids.shape[-1]:]
-                response = enc_tokenizer.decode(response, skip_special_tokens=True).lower()
-                
-                label_dict_tmp = {"walk": 0, "pedestrian":0, "bike": 1, "car": 2, "public": 3}
-                pred = None
-                for k in label_dict_tmp:
-                    if k in response:
-                        pred = label_dict_tmp[k]
-                        break
-
-                try:
-                    assert pred is not None
-                except:
-                    pdb.set_trace()
-            
-                label_dict_cnt[label.item()]+=1
-                pred_dict_cnt[pred]+=1
-                
-                pred = F.one_hot(torch.tensor(pred),4)
-                pred_list.append(pred)
-                label_list.append(label.item())
-                
-        print(label_dict_cnt, pred_dict_cnt)
-        # pdb.set_trace()
-        pred_list = torch.stack(pred_list)
-        label_list = torch.tensor(label_list)
-        acc1, = accuracy(pred_list.float(), label_list.float())
-        # acc1 = torch.sum((torch.tensor(pred_list)-torch.tensor(label_list))==0) / cnt
-        # top1.update(acc1.item(), cnt)
-        
-        # max_prob, preds = torch.max(y, 1)
-        for t, p in zip(label_list.view(-1), pred_list.view(-1)):
-            confusion_matrix[t.long(), p.long()] += 1
-        
-        print('accuracy:',acc1.item())
-        print(confusion_matrix)
-        exit()
-
-                
-            
-    # cnt = 18833
-    # per_class_dict = np.load("/home/yichen/Transfer-Learning-Library/examples/domain_adaptation/image_classification/logs/entropy_per_class_dict.npy", allow_pickle=True).item()
-        
-    # mask_list_propor = torch.zeros(cnt)
-    # for c in per_class_dict:
-    #     tmp_prob = torch.tensor(per_class_dict[c])
-    #     n_total = tmp_prob.shape[0]
-    #     probs,indices = torch.topk(-tmp_prob[:,1], k=int(n_total*args.pseudo_ratio))
-    #     indices_ori = tmp_prob[:,0][indices].long()
-    #     mask_list_propor[indices_ori] = 1
-    # mask_list_propor = mask_list_propor.bool().tolist()
-    # mask_list = list(map(operator.and_, mask_list_conf, mask_list_propor))
-    # print(sum(mask_list),sum(mask_list_conf),sum(mask_list_propor)) 
-
-    # cnt=0
-    # F1.eval()
-    # top1 = AverageMeter('Acc_1', ':6.2f')
-    # confusion_matrix = torch.zeros(nb_classes, nb_classes) 
-    # with torch.no_grad():
-    #     for i, data in enumerate(val_loader):
-    #         images = data[0]
-    #         labels = data[1]
-    #         images,labels = images.to(device), labels.to(device)
-    #         _,g,_,_,_,_,_ = G(images, args)
-    #         y = F1(g, None)
-    #         y = F.softmax(y,dim=1)
-
-    #         select_idx = torch.nonzero(torch.tensor(mask_list[cnt:cnt+images.shape[0]])).squeeze(1)
-    #         if len(select_idx)>0:
-    #             y = y[select_idx]
-    #             labels = labels[select_idx]
-                
-    #             acc1, = accuracy(y, labels)
-    #             top1.update(acc1.item(), len(select_idx))
-    #             _, preds = torch.max(y, 1)
-    #             for t, p in zip(labels.view(-1), preds.view(-1)):
-    #                 confusion_matrix[t.long(), p.long()] += 1
-            
-    #         cnt += images.shape[0]
-            
-    print('-------------------------------')
-    print(str(confusion_matrix))
-    per_class_acc = list((confusion_matrix.diag()/confusion_matrix.sum(1)).numpy())
-    print('per class accuracy after filtering:')
-    for idx,acc in enumerate(per_class_acc):
-        print('\t '+str(idx_dict[idx])+': '+str(acc))
-    print(' * Acc1 {top1.avg:.3f}'.format(top1=top1))
-    print('-------------------------------')
-    
-    return y_list, mask_list
-
-
-
 
 
 if __name__ == '__main__':
@@ -2622,6 +2385,7 @@ if __name__ == '__main__':
     parser.add_argument("--update_strategy", type=str, default='iter', help="Where to save logs, checkpoints and debugging images.")
     parser.add_argument('--self_train', action="store_true", help='Whether to perform evaluation after training')
     parser.add_argument('--semi', action="store_true", help='Whether to perform evaluation after training')
+
 
     args = parser.parse_args()
     torch.set_num_threads(8)

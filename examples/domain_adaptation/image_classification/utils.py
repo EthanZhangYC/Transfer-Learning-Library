@@ -175,6 +175,12 @@ def load_data(args):
     train_y_mtl = dataset_mtl[2]
     test_y = dataset_mtl[5]
     
+    # train_x_mtl_ori = train_x_mtl[:,:,2:]
+    # train_x_mtl_ori[pad_mask_target_train] = 0.
+    train_x_mtl_ori = dataset_mtl[0].squeeze(1)[:,:,2:]
+    pad_mask_target_train_ori = train_x_mtl_ori[:,:,2]==0
+    train_x_mtl_ori[pad_mask_target_train_ori] = 0.
+    
     train_x_mtl = train_x_mtl[:,:,4:]
     test_x = test_x[:,:,4:]
     
@@ -217,14 +223,23 @@ def load_data(args):
         torch.from_numpy(np.arange(n_mtl))
     )
 
+
     sampler = ImbalancedDatasetSampler(train_dataset_geolife, callback_get_label=get_label, num_samples=len(train_dataset_mtl))
     train_loader_source = DataLoader(train_dataset_geolife, batch_size=min(args.batch_size, len(train_dataset_geolife)), sampler=sampler, num_workers=8, shuffle=False, drop_last=True)
     # train_loader_target = DataLoader(train_dataset_mtl, batch_size=min(args.batch_size, len(train_dataset_mtl)), shuffle=True, drop_last=True)
-    train_loader_target = DataLoader(train_dataset_mtl, batch_size=min(args.batch_size, len(train_dataset_mtl)), num_workers=8, shuffle=True, drop_last=True)
+    train_loader_target = DataLoader(train_dataset_mtl, batch_size=min(args.batch_size, len(train_dataset_mtl)), num_workers=8, shuffle=True, drop_last=False)
     train_source_iter = ForeverDataIterator(train_loader_source)
     train_tgt_iter = ForeverDataIterator(train_loader_target)
-    train_loader_target = DataLoader(train_dataset_mtl, batch_size=min(args.batch_size, len(train_dataset_mtl)), num_workers=8, shuffle=False, drop_last=False)
+    # train_loader_target = DataLoader(train_dataset_mtl, batch_size=min(args.batch_size, len(train_dataset_mtl)), num_workers=8, shuffle=False, drop_last=False)
     train_loader = (train_source_iter, train_tgt_iter)
+    
+    
+    train_dataset_mtl_ori = TensorDataset(
+        torch.from_numpy(train_x_mtl_ori).to(torch.float),
+        torch.from_numpy(train_y_mtl)
+    )
+    train_loader_target_ori = DataLoader(train_dataset_mtl_ori, batch_size=min(args.batch_size, len(train_dataset_mtl)), num_workers=8, shuffle=False, drop_last=False)
+
     
     test_dataset = TensorDataset(
         torch.from_numpy(test_x).to(torch.float),
@@ -232,7 +247,7 @@ def load_data(args):
     )
     test_loader = DataLoader(test_dataset, batch_size=min(args.batch_size, len(test_dataset)))
 
-    return train_source_iter, train_tgt_iter, test_loader, train_loader_target
+    return train_source_iter, train_tgt_iter, test_loader, train_loader_target, train_loader_target_ori
 
 
 
@@ -1169,6 +1184,7 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shu
         train_x = dataset[2].squeeze(1)
     else:
         train_x = dataset[0].squeeze(1)
+    
     train_y = dataset[3]
     train_x = train_x[:,:,2:]   
     pad_mask_source = train_x[:,:,2]==0
@@ -1225,6 +1241,10 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shu
     train_y_mtl = dataset_mtl[2]
     test_y = dataset_mtl[5]
     
+    # ori_train_mtl = dataset_mtl[0].squeeze(1)
+    # pad_mask_target_train_ori = train_x_mtl_ori[:,:,2]==0
+    # ori_train_x_mtl[pad_mask_target_train_ori] = 0.
+
     train_x_mtl = train_x_mtl[:,:,2:]
     test_x = test_x[:,:,2:]
     pad_mask_target_train = train_x_mtl[:,:,2]==0
@@ -1304,6 +1324,9 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shu
         
     train_loader_source = DataLoader(train_dataset_src, batch_size=min(args.batch_size, len(train_dataset_src)), sampler=sampler, shuffle=False, drop_last=True, collate_fn=collate_fn, num_workers=0)
     train_loader_target = DataLoader(train_dataset_tgt, batch_size=min(args.batch_size, len(train_dataset_tgt)), shuffle=shuffle, drop_last=True, collate_fn=collate_fn, num_workers=0)
+    
+    # train_dataset_tgt_ori = create_single_dataset_idx_v3(train_x_mtl_ori, pseudo_labels, nbr_idx_tuple, total_trips, pos_trips, dataset='tgt', label_mask=pseudo_labels_mask, nbr_limit=args.nbr_limit, neighbor_labels=pseudo_labels, args=args, enc_tokenizer=enc_tokenizer)
+    # train_loader_target_ori = DataLoader(train_dataset_tgt_ori, batch_size=min(args.batch_size, len(train_dataset_tgt)), shuffle=shuffle, drop_last=True, collate_fn=collate_fn, num_workers=0)
 
     train_source_iter = ForeverDataIterator(train_loader_source)
     train_tgt_iter = ForeverDataIterator(train_loader_target)
@@ -1315,7 +1338,7 @@ def load_data_neighbor_v3(args, pseudo_labels=None, pseudo_labels_mask=None, shu
     else:
         train_tgt_iter_lbd=None
 
-    return train_source_iter, train_tgt_iter, test_loader, train_loader_source, train_loader_target, train_loader_source, train_tgt_iter_lbd
+    return train_source_iter, train_tgt_iter, test_loader, train_loader_source, train_loader_target, train_loader_source, train_tgt_iter_lbd#, train_loader_target_ori
 
 
 
